@@ -12,4 +12,8 @@ python -m http.server 8000
 
 然后在浏览器打开 `http://localhost:8000`。需要支持 WebGL 2 的现代浏览器。画质会在性能不足时自动降低；系统启用“减少动态效果”时显示静止画面，并即时切换光线。
 
+## GitHub Pages
+
+在仓库的 **Settings → Pages → Build and deployment → Source** 中选择 **GitHub Actions**。将部署工作流提交到 `main` 后，每次推送到 `main` 都会自动更新预览，也可在 Actions 页面手动运行。部署成功后，可通过工作流显示的地址访问；默认地址为 `https://yuchensuncshi.github.io/nagi/`。
+
 本地 `reference` 文件夹中的 Shadertoy 源码仅供参考，不纳入仓库；水面效果为独立实现。
