@@ -1,39 +1,43 @@
 const soundButton = document.querySelector('#sound');
 const soundError = document.querySelector('#sound-error');
-let audio;
+let audioContext;
+let source;
 let playing = false;
-
-function showAudioError(error) {
-  console.error(error);
-  playing = false;
-  soundButton.setAttribute('aria-pressed', 'false');
-  soundButton.textContent = '声音：关';
-  soundError.textContent = '环境音效无法播放，请检查浏览器的声音设置。';
-  soundError.hidden = false;
-}
 
 soundButton.addEventListener('click', async () => {
   soundButton.disabled = true;
   try {
-    if (!audio) {
-      audio = new Audio(new URL('./assets/water-lake-b-ai.wav', import.meta.url));
-      audio.loop = true;
-      audio.preload = 'none';
-      audio.addEventListener('error', () => showAudioError(audio.error));
+    if (!audioContext) {
+      if (!window.AudioContext) throw new Error('Web Audio is not supported');
+      audioContext = new AudioContext();
     }
 
     if (playing) {
-      audio.pause();
+      await audioContext.suspend();
+      if (audioContext.state !== 'suspended') throw new Error('Audio did not pause');
     } else {
-      if (audio.error) audio.load();
-      await audio.play();
+      await audioContext.resume();
+      if (audioContext.state !== 'running') throw new Error('Audio did not start');
+      if (!source) {
+        const response = await fetch(new URL('./assets/water-lake-b-even.wav', import.meta.url));
+        if (!response.ok) throw new Error(`Audio request failed: ${response.status}`);
+        const buffer = await audioContext.decodeAudioData(await response.arrayBuffer());
+        const newSource = audioContext.createBufferSource();
+        newSource.buffer = buffer;
+        newSource.loop = true;
+        newSource.connect(audioContext.destination);
+        newSource.start();
+        source = newSource;
+      }
     }
     playing = !playing;
     soundButton.setAttribute('aria-pressed', String(playing));
     soundButton.textContent = playing ? '声音：开' : '声音：关';
     soundError.hidden = true;
   } catch (error) {
-    showAudioError(error);
+    console.error(error);
+    soundError.textContent = '环境音效无法播放，请检查浏览器的声音设置。';
+    soundError.hidden = false;
   } finally {
     soundButton.disabled = false;
   }

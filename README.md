@@ -12,7 +12,7 @@ python -m http.server 8000
 
 然后在浏览器打开 `http://localhost:8000`。需要支持 WebGL 2 的现代浏览器。画质会在性能不足时自动降低；系统启用“减少动态效果”时显示静止画面，并即时切换光线。
 
-风声和水浪环境音默认关闭，可通过左上角的“声音”按钮开启或关闭；音量可通过设备系统设置调整。音效由 [MOSS-SoundEffect v2.0](https://huggingface.co/OpenMOSS-Team/MOSS-SoundEffect-v2.0) 本地生成，并经过循环接缝处理。模型使用 Apache-2.0 许可。
+风声和水浪环境音默认关闭，可通过左上角的“声音”按钮开启或关闭；音量可通过设备系统设置调整。音效由 [MOSS-SoundEffect v2.0](https://huggingface.co/OpenMOSS-Team/MOSS-SoundEffect-v2.0) 本地生成，经过循环接缝和响度平滑处理，并使用 Web Audio 无间隙循环播放。模型使用 Apache-2.0 许可。
 
 ## GitHub Pages
 
