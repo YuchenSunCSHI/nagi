@@ -20,7 +20,8 @@ export function mountTuningPanel(redraw: () => void) {
     ...([
       ['skyBlue', '天空蓝度（白天）', 0.7, 1.45],
       ['distantTransition', '远水过渡（白天）', 0.55, 1.55],
-      ['reflection', '反光强度', 0.55, 1.45]
+      ['reflection', '反光强度', 0.55, 1.45],
+      ['daySparkle', '波光增强（白天）', 0, 2]
     ] as const).map(([key, label, min, max]) => ({
       name: key, label, min, max, step: 0.01,
       get: () => appearance[key],

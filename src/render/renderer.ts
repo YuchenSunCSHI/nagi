@@ -123,7 +123,8 @@ export function createRenderer(gl: WebGL2RenderingContext, images: HTMLImageElem
         dropUniforms.set([point.x, point.z, point.time, point.strength], i * 4);
       }
       gl.uniform1f(cameraPitch, camera.pitch);
-      gl.uniform3f(appearanceUniform, appearance.skyBlue, appearance.distantTransition, appearance.reflection);
+      gl.uniform4f(appearanceUniform, appearance.skyBlue, appearance.distantTransition,
+        appearance.reflection, appearance.daySparkle);
       gl.uniform1f(time, seconds);
       gl.uniform3fv(lighting, light);
       gl.uniform1i(rippleCount, wakes.length);

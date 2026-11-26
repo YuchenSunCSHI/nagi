@@ -1,10 +1,10 @@
 #water-tuning {
   position: fixed;
-  right: 1.25rem;
-  bottom: 1.25rem;
+  left: max(var(--hud-edge), env(safe-area-inset-left));
+  bottom: var(--hud-bottom);
   box-sizing: border-box;
   max-width: calc(100vw - 2.5rem);
-  max-height: 75vh;
+  max-height: min(75dvh, calc(100dvh - 136px));
   overflow: auto;
   padding: 0.6rem 0.9rem;
   border: 1px solid rgba(255, 255, 255, 0.45);
@@ -23,3 +23,10 @@
 }
 #water-tuning input { grid-column: 1; width: 100%; margin: 0; }
 #water-tuning output { grid-column: 2; text-align: right; }
+
+@media (max-width: 32rem) {
+  #water-tuning {
+    bottom: auto;
+    top: max(var(--hud-edge), env(safe-area-inset-top));
+  }
+}

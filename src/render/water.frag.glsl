@@ -5,7 +5,7 @@ uniform vec2 uResolution;
 uniform float uTime;
 uniform float uCameraPitch;
 uniform vec4 uCameraShape;
-uniform vec3 uAppearance; // Day-sky blue, far-water transition width, and reflection strength.
+uniform vec4 uAppearance; // Day-sky blue, far-water transition width, reflection strength, and day sparkle boost.
 uniform vec3 uLighting;
 uniform vec4 uRipples[20];
 uniform vec4 uRippleEnds[20];
@@ -330,7 +330,7 @@ void main() {
   vec3 sunsetSky = mix(vec3(0.90, 0.40, 0.16), vec3(1.15, 0.68, 0.29), skyMix);
   vec3 nightSky = mix(vec3(0.025, 0.045, 0.10), vec3(0.08, 0.13, 0.23), skyMix);
   vec3 dayReflection = clearDaySky(reflected)
-    * mix(vec3(1.0), vec3(0.30, 0.42, 0.52), deepWater);
+    * mix(vec3(1.0 + 0.22 * uAppearance.w), vec3(0.30, 0.42, 0.52), deepWater);
   vec3 sky = dayReflection * uLighting.x
     + sunsetSky * uLighting.y + nightSky * uLighting.z;
 
@@ -382,7 +382,11 @@ void main() {
     + vec3(0.72, 0.82, 1.0) * uLighting.z;
   float glintStrength = dot(vec3(0.62, 4.5, 0.65), uLighting);
   float glowStrength = dot(vec3(0.06, 0.27, 0.035), uLighting);
-  color += lightColor * (glint * glintStrength + glow * glowStrength) * uAppearance.z;
+  // A narrow sun glint adds bright crests without lifting the whole water surface.
+  float daySparkle = uLighting.x * (1.0 - smoothstep(12.0, 32.0, point.y))
+    * (0.85 * glint + 2.4 * pow(sunAlignment, 280.0)) * uAppearance.w;
+  color += (lightColor * (glint * glintStrength + glow * glowStrength)
+    + vec3(1.0, 0.94, 0.83) * daySparkle) * uAppearance.z;
 
   vec3 horizonSky = vec3(1.05, 0.55, 0.25) * uLighting.y
     + vec3(0.055, 0.09, 0.16) * uLighting.z;

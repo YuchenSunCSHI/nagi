@@ -18,62 +18,224 @@ canvas {
   height: 100%;
 }
 
-.control,
-#lighting {
+:root {
+  --control-surface: rgb(15 30 38 / 88%);
+  --control-glass: rgb(12 23 30 / 74%);
+  --control-border: rgb(225 242 244 / 24%);
+  --control-text: #f3f4ee;
+  --control-muted: #c6d8da;
+  --control-highlight: rgb(210 236 235 / 14%);
+  --control-focus: #f3f4ee;
+  --control-radius: 12px;
+  --control-target: 44px;
+  --hud-edge: 16px;
+  --hud-bottom: max(var(--hud-edge), env(safe-area-inset-bottom));
+  --hud-right: max(var(--hud-edge), env(safe-area-inset-right));
+}
+
+.scene-hud {
   position: fixed;
-  top: 1.25rem;
-  padding: 0.6rem 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.45);
+  inset-inline-end: var(--hud-right);
+  inset-block-end: var(--hud-bottom);
+  max-inline-size: calc(100% - var(--hud-right) - max(var(--hud-edge), env(safe-area-inset-left)));
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  z-index: 1;
+}
+
+.scene-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  color: var(--control-text);
+  font-size: 1rem;
+}
+
+.scene-lighting {
+  --segment-inset: 2px;
+  --segment-gap: 2px;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(max-content, 1fr));
+  gap: var(--segment-gap);
+  min-inline-size: 0;
+  margin: 0;
+  padding: var(--segment-inset);
+}
+
+.scene-lighting,
+.scene-sound {
+  border: 1px solid var(--control-border);
   border-radius: 999px;
-  background: rgba(15, 30, 38, 0.72);
-  color: #fff;
+  background: var(--control-glass);
+}
+
+.scene-lighting label {
+  position: relative;
+}
+
+.visually-hidden,
+.scene-lighting input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.scene-lighting label span,
+.scene-sound {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-inline-size: var(--control-target);
+  min-block-size: var(--control-target);
+  color: var(--control-text);
   font: inherit;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-#sound {
-  left: 1.25rem;
+.scene-lighting label span {
+  inline-size: 100%;
+  min-inline-size: calc(var(--control-target) + 10px);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--control-muted);
 }
 
-#lighting {
-  right: 1.25rem;
+.scene-lighting svg {
+  inline-size: 22px;
+  block-size: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-#sound[aria-pressed="true"] {
-  background: rgba(32, 75, 82, 0.9);
+.scene-lighting input:checked + span {
+  background: var(--control-highlight);
+  border-color: var(--control-border);
+  color: var(--control-text);
 }
 
-#lighting:hover,
-#lighting[data-phase="sunset"] {
-  background: rgba(112, 62, 33, 0.85);
+@supports selector(:has(*)) {
+  .scene-lighting::before {
+    content: "";
+    position: absolute;
+    inset-block: var(--segment-inset);
+    inset-inline-start: var(--segment-inset);
+    inline-size: calc((100% - 2 * var(--segment-inset) - 2 * var(--segment-gap)) / 3);
+    box-sizing: border-box;
+    border: 1px solid var(--control-border);
+    border-radius: inherit;
+    background: var(--control-highlight);
+    pointer-events: none;
+    transform: translateX(var(--segment-offset, 0px));
+  }
+  .scene-lighting:has(input[value="sunset"]:checked) {
+    --segment-offset: calc(100% + var(--segment-gap));
+  }
+  .scene-lighting:has(input[value="night"]:checked) {
+    --segment-offset: calc(200% + 2 * var(--segment-gap));
+  }
+  .scene-lighting input:checked + span {
+    background: transparent;
+    border-color: transparent;
+  }
 }
 
-#lighting[data-phase="night"] {
-  background: rgba(19, 34, 65, 0.88);
+.scene-sound {
+  display: inline-grid;
+  place-items: center;
+  inline-size: calc(var(--control-target) + 6px);
+  block-size: calc(var(--control-target) + 6px);
+  padding: 0;
 }
 
-.control:focus-visible,
-#lighting:focus-visible {
-  outline: 2px solid #fff;
-  outline-offset: 3px;
+.scene-sound svg {
+  grid-area: 1 / 1;
 }
 
-.control:disabled,
-#lighting:disabled {
-  cursor: default;
+.scene-sound[aria-pressed="true"] .sound-mute,
+.scene-sound[aria-pressed="false"] .sound-wave,
+.scene-sound[aria-busy="true"] .sound-icon,
+.scene-sound:not([aria-busy="true"]) .sound-wait {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .scene-lighting::before {
+    transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .scene-sound svg,
+  .scene-sound .sound-wave,
+  .scene-sound .sound-mute {
+    transition: opacity 120ms ease-out;
+  }
+}
+
+.scene-lighting input:focus-visible + span,
+.scene-sound:focus-visible {
+  outline: 2px solid var(--control-focus);
+  outline-offset: -2px;
+}
+
+.scene-lighting:disabled label span,
+.scene-sound:disabled {
+  cursor: wait;
+  color: var(--control-muted);
+}
+
+@media (hover: hover) {
+  .scene-lighting input:enabled:not(:checked) + span:hover {
+    color: var(--control-text);
+  }
+  .scene-sound:enabled:hover {
+    border-color: var(--control-muted);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root { --control-glass: #14262e; }
+}
+
+@media (forced-colors: active) {
+  .scene-lighting input:checked + span {
+    border-color: ButtonText;
+  }
+  .scene-lighting input:focus-visible + span,
+  .scene-sound:focus-visible {
+    outline-color: Highlight;
+  }
+  @supports selector(:has(*)) {
+    .scene-lighting::before {
+      border-color: ButtonText;
+    }
+    .scene-lighting input:checked + span {
+      border-color: transparent;
+    }
+  }
 }
 
 #sound-error:not([hidden]) {
-  position: fixed;
-  top: 4.5rem;
-  left: 1.25rem;
-  max-width: min(20rem, calc(100vw - 2.5rem));
+  max-inline-size: 20rem;
+  min-inline-size: 0;
   box-sizing: border-box;
   margin: 0;
-  padding: 0.65rem 0.85rem;
-  border-radius: 0.5rem;
-  background: rgba(15, 30, 38, 0.9);
-  color: #fff;
+  padding: 8px 12px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--control-radius);
+  background: var(--control-surface);
+  color: var(--control-text);
   line-height: 1.5;
 }
 

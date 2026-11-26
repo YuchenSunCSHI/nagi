@@ -60,6 +60,7 @@ document.addEventListener('visibilitychange', () => {
 
 soundButton.addEventListener('click', async () => {
   soundButton.disabled = true;
+  soundButton.setAttribute('aria-busy', 'true');
   try {
     if (!audioContext) {
       if (!window.AudioContext) throw new Error('Web Audio is not supported');
@@ -87,7 +88,6 @@ soundButton.addEventListener('click', async () => {
     }
     playing = !playing;
     soundButton.setAttribute('aria-pressed', String(playing));
-    soundButton.textContent = playing ? '声音：开' : '声音：关';
     soundError.hidden = true;
     if (playing && !strokeSource) {
       try {
@@ -106,15 +106,18 @@ soundButton.addEventListener('click', async () => {
         strokeGain = gain;
       } catch (error) {
         console.error(error);
-        soundError.textContent = '划水音效无法加载，请检查网络连接后重新开启声音。';
+        soundError.textContent = '环境音已开启，划水声未加载。关闭声音后重新开启可重试。';
         soundError.hidden = false;
       }
     }
   } catch (error) {
     console.error(error);
-    soundError.textContent = '环境音效无法播放，请检查浏览器的声音设置。';
+    soundError.textContent = playing
+      ? '声音未能关闭，请再点一次「声音」。'
+      : '声音未能开启，请再点一次「声音」重试。';
     soundError.hidden = false;
   } finally {
+    soundButton.removeAttribute('aria-busy');
     soundButton.disabled = false;
   }
 });

@@ -9,7 +9,7 @@ import { createGestures, type StrokePoint, type TimedPoint } from './input/gestu
 
 const canvas = document.querySelector<HTMLCanvasElement>('#water')!;
 const message = document.querySelector<HTMLElement>('#message')!;
-const lightingButton = document.querySelector<HTMLButtonElement>('#lighting')!;
+const lightingControls = document.querySelector<HTMLFieldSetElement>('#lighting')!;
 const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
 const fish = createFishSchool();
 const clock = createClock();
@@ -31,7 +31,7 @@ let lastRippleTime = 0;
 
 function showError(text: string, error?: unknown) {
   if (error) console.error(error);
-  lightingButton.disabled = true;
+  lightingControls.disabled = true;
   message.textContent = text;
   message.hidden = false;
   cancelAnimationFrame(frame);
@@ -48,7 +48,7 @@ function initialize() {
   try {
     renderer = createRenderer(gl, images, fish.seeds);
     message.hidden = true;
-    lightingButton.disabled = false;
+    lightingControls.disabled = false;
     resize();
     return true;
   } catch (error) {
@@ -194,7 +194,7 @@ const gestures = createGestures(clock.timeAt,
   });
 bindWaterPointer(canvas, gestures.pointer, soundPointer);
 
-if (import.meta.env.DEV) {
+if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('tuning') === '1') {
   void import('./dev/tuning').then(({ mountTuningPanel }) => mountTuningPanel(() => {
     gestures.reset();
     if (renderer && !contextLost && message.hidden && motionPreference.matches && !document.hidden) {
@@ -224,11 +224,10 @@ motionPreference.addEventListener('change', () => {
   }
   updatePlayback();
 });
-lightingButton.addEventListener('click', () => {
-  const { mode, next } = lighting.advance(performance.now(), motionPreference.matches);
-  lightingButton.textContent = `${mode.label} → ${next.label}`;
-  lightingButton.dataset.phase = mode.phase;
-  lightingButton.setAttribute('aria-label', `当前${mode.label}，切换到${next.label}`);
+lightingControls.addEventListener('change', (event) => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || !input.checked) return;
+  const mode = lighting.select(input.value, performance.now(), motionPreference.matches);
   canvas.setAttribute('aria-label', mode.canvasLabel);
   updatePlayback();
 });

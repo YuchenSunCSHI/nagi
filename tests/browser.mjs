@@ -45,8 +45,54 @@ try {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('response', response => { if (!response.ok() && response.status() !== 304) errors.push(response.url()); });
-  await page.goto(devUrl ?? `http://127.0.0.1:${server.address().port}${prefix}`);
-  await page.locator('#lighting:enabled').waitFor();
+  const url = new URL(devUrl ?? `http://127.0.0.1:${server.address().port}${prefix}`);
+  url.searchParams.delete('tuning');
+  if (devUrl) {
+    await page.goto(url.href, { waitUntil: 'networkidle' });
+    assert.equal(await page.locator('#water-tuning').count(), 0, 'tuning is hidden by default in development');
+  }
+  url.searchParams.set('tuning', '1');
+  const appUrl = url.href;
+  await page.goto(appUrl);
+  const lighting = page.locator('#lighting');
+  const option = phase => lighting.locator(`input[value="${phase}"]`);
+  const choose = phase => lighting.locator(`label:has(input[value="${phase}"])`).click();
+  await lighting.locator('input:enabled').first().waitFor();
+  assert.equal(await option('day').isChecked(), true);
+  for (const [phase, name] of [['day', '白天'], ['sunset', '傍晚'], ['night', '月光']]) {
+    assert.equal(await lighting.getByRole('radio', { name, exact: true }).getAttribute('value'), phase);
+    const label = lighting.locator(`label:has(input[value="${phase}"])`);
+    assert.equal(await label.getAttribute('title'), name);
+    assert.equal(await label.locator('svg').isVisible(), true);
+  }
+  const verifyLightingMotion = async () => {
+    const sunsetLabel = lighting.locator('label').filter({ has: page.getByRole('radio', { name: '傍晚' }) });
+    await sunsetLabel.hover();
+    const hoverFill = await sunsetLabel.locator('span').evaluate(span => getComputedStyle(span).backgroundColor);
+    assert.equal(hoverFill, 'rgba(0, 0, 0, 0)', 'hover does not fill an unselected segment');
+    const indicator = () => lighting.evaluate(group => {
+      const style = getComputedStyle(group, '::before');
+      return { offset: new DOMMatrixReadOnly(style.transform).m41, duration: style.transitionDuration };
+    });
+    assert.deepEqual(await indicator(), { offset: 0, duration: '0s' }, 'reduced motion starts with a stationary selection');
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await lighting.evaluate(async group => {
+      getComputedStyle(group, '::before').transform;
+      group.querySelector('input[value="night"]').click();
+      getComputedStyle(group, '::before').transform;
+      const slide = group.getAnimations({ subtree: true }).find(animation => animation.transitionProperty === 'transform');
+      if (!slide) throw new Error('Expected the light selection to slide');
+      await slide.finished;
+    });
+    const nightOffset = await lighting.evaluate(group =>
+      group.querySelector('input[value="night"]').parentElement.offsetLeft -
+      group.querySelector('input[value="day"]').parentElement.offsetLeft);
+    assert.ok(Math.abs((await indicator()).offset - nightOffset) < 1, 'the selection slides to the target segment');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await choose('day');
+    assert.deepEqual(await indicator(), { offset: 0, duration: '0s' }, 'reduced motion returns directly to the selected segment');
+    await page.mouse.move(0, 0);
+  };
   const hashes = {};
   const capture = () => page.evaluate(() => {
       const canvas = document.querySelector('#water');
@@ -70,11 +116,12 @@ try {
       return copy.toDataURL().split(',')[1];
     });
   const hashFrame = async () => createHash('sha256').update(Buffer.from(await capture(), 'base64')).digest('hex');
-  for (const phase of ['day', 'sunset', 'night']) {
-    assert.equal(await page.locator('#lighting').getAttribute('data-phase'), phase);
+  for (const phase of ['day', 'night', 'sunset']) {
+    if (phase !== 'day') await choose(phase);
+    assert.equal(await option(phase).isChecked(), true);
     hashes[phase] = await hashFrame();
-    await page.locator('#lighting').click();
   }
+  await choose('day');
   const tuning = page.locator('#water-tuning');
   if (devUrl) {
     await tuning.locator('summary').click();
@@ -86,10 +133,60 @@ try {
       await tuning.getByRole('button', { name: '恢复默认' }).click();
       assert.equal(await hashFrame(), hashes.day, `${name} reset returns to the original frame`);
     }
+    const sparkle = page.locator('#water-tune-daySparkle');
+    assert.equal(await sparkle.inputValue(), '2', 'daylight starts at 200%');
+    await sparkle.fill('0');
+    assert.equal(await hashFrame(), '2c4ca5fad9e57ae4e190c6f1dd7692ba8e27b5b9340a76f9a971492759873198',
+      'zero sparkle boost preserves the original daylight reflection');
+    await sparkle.fill('2');
+    assert.equal(await hashFrame(), hashes.day, '200% matches the initial daylight');
+    await sparkle.fill('0');
+    for (const phase of ['sunset', 'night']) {
+      await choose(phase);
+      assert.equal(await hashFrame(), hashes[phase], `day sparkle does not affect ${phase}`);
+    }
+    await choose('day');
+    await tuning.getByRole('button', { name: '恢复默认' }).click();
+    assert.equal(await sparkle.inputValue(), '2', 'reset restores the 200% slider value');
+    assert.equal(await hashFrame(), hashes.day, 'reset restores the approved daylight');
     await tuning.locator('summary').click();
   } else {
     assert.equal(await tuning.count(), 0, 'tuning UI is absent in production');
   }
+  await verifyLightingMotion();
+  const phone = await browser.newPage({ viewport: { width: 320, height: 568 }, hasTouch: true, reducedMotion: 'reduce' });
+  try {
+    await phone.goto(appUrl);
+    await phone.locator('#lighting input:enabled').first().waitFor();
+    const targets = await phone.locator('.scene-lighting label, #sound').evaluateAll(elements =>
+      elements.map(element => {
+        const { width, height, left, right, top, bottom } = element.getBoundingClientRect();
+        return { width, height, left, right, top, bottom };
+      }));
+    assert.ok(targets.every(({ width, height, left, right, top, bottom }) =>
+      width >= 44 && height >= 44 && left >= 0 && right <= 320 && top >= 0 && bottom <= 568),
+    'control targets fit a 320px touch viewport and are at least 44px in each dimension');
+    await phone.locator('.scene-lighting label').filter({ has: phone.getByRole('radio', { name: '月光' }) }).tap();
+    await phone.locator('#lighting input[value=night]:checked').waitFor({ state: 'attached' });
+    assert.equal(await phone.locator('#water').getAttribute('aria-label'), '月光下缓缓流动的河面');
+    const phoneHud = await phone.locator('.scene-controls').boundingBox();
+    assert.ok(phoneHud.height < 88, 'the control bar stays on one row at 320px');
+    if (devUrl) {
+      await phone.locator('#water-tuning summary').tap();
+      const tuningBox = await phone.locator('#water-tuning').boundingBox();
+      const hudBox = await phone.locator('.scene-hud').boundingBox();
+      assert.ok(tuningBox.y + tuningBox.height <= hudBox.y, 'expanded tuning does not cover mobile scene controls');
+    }
+  } finally {
+    await phone.close();
+  }
+  await option('day').focus();
+  assert.equal(await option('day').evaluate(input => input === document.activeElement), true);
+  await page.keyboard.press('ArrowLeft');
+  assert.equal(await option('night').isChecked(), true, 'arrow keys change the selected scene');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.locator('#sound').evaluate(button => button === document.activeElement), true);
   await page.setViewportSize({ width: 700, height: 420 });
   await page.waitForFunction(() => {
     const canvas = document.querySelector('#water');
@@ -105,15 +202,37 @@ try {
     document.querySelector('#water').addEventListener('webglcontextlost',
       () => setTimeout(() => extension.restoreContext(), 100), { once: true });
   });
-  await page.locator('#lighting:disabled').waitFor();
-  await page.locator('#lighting:enabled').waitFor();
+  await lighting.locator('input:disabled').first().waitFor();
+  await lighting.locator('input:enabled').first().waitFor();
   assert.equal(await page.evaluate(() => {
     const gl = document.querySelector('#water').getContext('webgl2');
     return !gl.isContextLost() && Boolean(gl.getParameter(gl.CURRENT_PROGRAM));
   }), true, 'WebGL renderer recreates its program after context restore');
   await page.setViewportSize({ width: 640, height: 400 });
-  await page.locator('#sound').click();
+  const hud = page.locator('.scene-controls');
+  const initialHud = await hud.boundingBox();
+  let releaseAudio;
+  const audioGate = new Promise(resolve => { releaseAudio = resolve; });
+  const soundOpacity = selector => page.locator(`#sound ${selector}`).evaluate(icon => getComputedStyle(icon).opacity);
+  await page.route(/water-lake-b-even[^/]*\.wav$/, async route => {
+    await audioGate;
+    await route.continue();
+  }, { times: 1 });
+  try {
+    await page.locator('#sound').click();
+    await page.locator('#sound:disabled').waitFor();
+    assert.equal(await page.locator('#sound').getAttribute('aria-busy'), 'true');
+    assert.equal(await soundOpacity('.sound-wait'), '1', 'slow audio shows the wait icon even with reduced motion');
+    assert.equal(await soundOpacity('.sound-icon'), '0', 'the wait icon replaces the speaker in place');
+    assert.deepEqual(await hud.boundingBox(), initialHud, 'sound loading does not move or resize the control bar');
+  } finally {
+    releaseAudio();
+  }
   await page.locator('#sound[aria-pressed=true]:enabled').waitFor();
+  assert.equal(await soundOpacity('.sound-wait'), '0', 'the wait icon clears when sound is ready');
+  assert.equal(await soundOpacity('.sound-wave'), '1');
+  assert.equal(await soundOpacity('.sound-mute'), '0');
+  assert.deepEqual(await hud.boundingBox(), initialHud, 'enabling sound keeps the control bar in place');
   assert.equal(await page.locator('#sound-error').isHidden(), true);
   const sendPointer = (kind, x, y) => page.locator('#water').dispatchEvent(`pointer${kind}`, {
     pointerType: 'mouse', clientX: x, clientY: y
@@ -138,6 +257,9 @@ try {
   assert.deepEqual(await page.evaluate(() => window.strokeGainTargets.slice(-2)), [0.65, 0], 'sky stops audio');
   await page.locator('#sound').click();
   await page.locator('#sound[aria-pressed=false]:enabled').waitFor();
+  assert.equal(await soundOpacity('.sound-wave'), '0');
+  assert.equal(await soundOpacity('.sound-mute'), '1');
+  assert.deepEqual(await hud.boundingBox(), initialHud, 'disabling sound keeps the control bar in place');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.mouse.move(200, 35);
   await page.mouse.move(315, 35);
