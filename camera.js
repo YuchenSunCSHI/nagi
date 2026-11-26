@@ -1,6 +1,6 @@
 export const camera = {
   height: 0.9,
-  pitch: 0.15,
+  pitch: 0.12,
   horizontalScale: 0.55,
   verticalScale: 0.27,
   horizonMargin: 0.015

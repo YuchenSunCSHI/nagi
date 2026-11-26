@@ -1,4 +1,4 @@
-import { camera, waterPointAt } from './camera.js?v=1';
+import { camera, waterPointAt } from './camera.js';
 
 const canvas = document.querySelector('#water');
 const message = document.querySelector('#message');
@@ -954,12 +954,12 @@ function loadImage(url) {
 message.textContent = '正在加载水下素材…';
 message.hidden = false;
 Promise.all([
-  loadImage('assets/dry_river_pebbles_diff_1k.jpg'),
-  loadImage('assets/dry_river_pebbles_nor_gl_1k.jpg'),
-  loadImage('assets/fish-trout.png'),
-  loadImage('assets/fish-koi.png'),
-  loadImage('assets/fish-largemouth-bass.png'),
-  loadImage('assets/fish-channel-catfish.png')
+  loadImage(new URL('./assets/dry_river_pebbles_diff_1k.jpg', import.meta.url).href),
+  loadImage(new URL('./assets/dry_river_pebbles_nor_gl_1k.jpg', import.meta.url).href),
+  loadImage(new URL('./assets/fish-trout.png', import.meta.url).href),
+  loadImage(new URL('./assets/fish-koi.png', import.meta.url).href),
+  loadImage(new URL('./assets/fish-largemouth-bass.png', import.meta.url).href),
+  loadImage(new URL('./assets/fish-channel-catfish.png', import.meta.url).href)
 ]).then(([color, normal, fish, koi, bass, catfish]) => {
   bedColorImage = color;
   bedNormalImage = normal;

@@ -1,4 +1,4 @@
-import { waterPointAt } from './camera.js?v=1';
+import { waterPointAt } from './camera.js';
 
 const soundButton = document.querySelector('#sound');
 const soundError = document.querySelector('#sound-error');
