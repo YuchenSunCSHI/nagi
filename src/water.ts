@@ -1,8 +1,11 @@
 import { createRenderer, loadWaterTextures, type Drop, type Wake } from './render/renderer';
-import { waterPointAt, type WaterPoint } from './scene/camera';
+import type { WaterPoint } from './scene/camera';
 import { createClock } from './scene/clock';
 import { createFishSchool } from './scene/fish';
 import { createLighting } from './scene/lighting';
+import { soundPointer } from './audio/sound';
+import { bindWaterPointer } from './input/pointer';
+import { createGestures, type StrokePoint, type TimedPoint } from './input/gestures';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#water')!;
 const message = document.querySelector<HTMLElement>('#message')!;
@@ -18,15 +21,10 @@ let images: HTMLImageElement[] | undefined;
 let frame = 0;
 let contextLost = false;
 
-type TimedPoint = WaterPoint & { time: number };
-type PointerPoint = TimedPoint & { now: number; clientX: number; clientY: number };
-let lastPointer: PointerPoint | undefined;
-let pointerPoint: PointerPoint | undefined;
-let gesture: { distance: number; lastTime: number; isStroke: boolean; points: PointerPoint[] } | undefined;
-let gestureTimer: number | undefined;
+let lastPointer: StrokePoint | undefined;
 let activeStroke: Wake | undefined;
 let previousStroke: Wake | undefined;
-let strokeAnchor: PointerPoint | undefined;
+let strokeAnchor: StrokePoint | undefined;
 let strokeDirection: WaterPoint | undefined;
 let currentPath: object | undefined;
 let lastRippleTime = 0;
@@ -96,8 +94,7 @@ function stop() {
 
 function updatePlayback() {
   stop();
-  resetGesture();
-  pointerPoint = undefined;
+  gestures.reset();
   if (!renderer || contextLost || !message.hidden || document.hidden) return;
   resize();
   if (motionPreference.matches) {
@@ -107,35 +104,13 @@ function updatePlayback() {
   }
 }
 
-function pointerPosition(event: PointerEvent) {
-  const point = waterPointAt(canvas, event.clientX, event.clientY);
-  if (!point) return undefined;
-  const now = performance.now();
-  const time = clock.timeAt(now);
-  return { ...point, time, now, clientX: event.clientX, clientY: event.clientY };
-}
-
-
-function resetGesture() {
-  clearTimeout(gestureTimer);
-  gesture = undefined;
+function endStroke() {
   lastPointer = undefined;
   activeStroke = undefined;
   previousStroke = undefined;
   strokeAnchor = undefined;
   strokeDirection = undefined;
   currentPath = undefined;
-}
-
-function finishGesture() {
-  if (gesture && pointerPoint && !gesture.isStroke && gesture.distance > 0) {
-    const now = performance.now();
-    const time = clock.timeAt(now);
-    drops.push({ x: pointerPoint.x, z: pointerPoint.z, time, strength: 0.014 });
-    if (drops.length > 10) drops.shift();
-    fish.startle(pointerPoint, pointerPoint, 0.24, time);
-  }
-  resetGesture();
 }
 
 function midpoint(a: TimedPoint, b: TimedPoint) {
@@ -148,7 +123,7 @@ function setStrokeEnd(stroke: Wake, point: TimedPoint) {
   stroke.endTime = point.time;
 }
 
-function appendStroke(point: PointerPoint) {
+function appendStroke(point: StrokePoint) {
   if (!lastPointer || !currentPath) return;
   const dx = point.x - lastPointer.x;
   const dz = point.z - lastPointer.z;
@@ -199,65 +174,31 @@ function appendStroke(point: PointerPoint) {
   lastPointer = point;
 }
 
-canvas.addEventListener('pointerenter', (event) => {
-  if (event.pointerType === 'mouse') pointerPoint = pointerPosition(event);
-});
-canvas.addEventListener('pointermove', (event) => {
-  if (event.pointerType !== 'mouse' || motionPreference.matches || !renderer || contextLost
-    || !message.hidden || document.hidden) return;
-  const point = pointerPosition(event);
-  if (!point) {
-    finishGesture();
-    pointerPoint = undefined;
-    return;
-  }
-  if (!pointerPoint) {
-    pointerPoint = point;
-    return;
-  }
-  if (gesture && point.now - gesture.lastTime >= 220) finishGesture();
-  const previousPoint = pointerPoint;
-  const distance = Math.hypot(point.clientX - pointerPoint.clientX, point.clientY - pointerPoint.clientY);
-  if (distance === 0) return;
-  if (!gesture) {
-    gesture = { distance: 0, lastTime: point.now, isStroke: false, points: [pointerPoint] };
-    lastPointer = pointerPoint;
-    currentPath = {};
-  }
-  gesture.distance += distance;
-  gesture.lastTime = point.now;
-  pointerPoint = point;
-  clearTimeout(gestureTimer);
-  gestureTimer = setTimeout(finishGesture, 220);
-  if (gesture.isStroke) {
-    appendStroke(point);
-    fish.startle(previousPoint, point, 0.6, point.time);
-  } else if (gesture.distance > 15) {
-    gesture.isStroke = true;
-    for (const previous of gesture.points.slice(1)) appendStroke(previous);
-    appendStroke(point);
-    const points = [...gesture.points, point];
-    for (let i = 1; i < points.length; i++) fish.startle(points[i - 1], points[i], 0.6, point.time);
-    gesture.points = [];
-  } else {
-    const previous = gesture.points[gesture.points.length - 1];
-    if (Math.hypot(point.clientX - previous.clientX, point.clientY - previous.clientY) >= 2) {
-      gesture.points.push(point);
-    }
-  }
-});
-canvas.addEventListener('pointerleave', (event) => {
-  if (event.pointerType !== 'mouse') return;
-  finishGesture();
-  pointerPoint = undefined;
-});
+const gestures = createGestures(clock.timeAt,
+  () => !motionPreference.matches && Boolean(renderer) && !contextLost && message.hidden && !document.hidden,
+  {
+    drop(point) {
+      drops.push({ ...point, strength: 0.014 });
+      if (drops.length > 10) drops.shift();
+      fish.startle(point, point, 0.24, point.time);
+    },
+    start(point) {
+      lastPointer = point;
+      currentPath = {};
+    },
+    extend: appendStroke,
+    disturb(from, to, time) {
+      fish.startle(from, to, 0.6, time);
+    },
+    end: endStroke
+  });
+bindWaterPointer(canvas, gestures.pointer, soundPointer);
 
 canvas.addEventListener('webglcontextlost', (event) => {
   event.preventDefault();
   contextLost = true;
   stop();
-  resetGesture();
-  pointerPoint = undefined;
+  gestures.reset();
   showError('图形渲染暂时中断，正在等待浏览器恢复。');
 });
 canvas.addEventListener('webglcontextrestored', () => {

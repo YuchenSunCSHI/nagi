@@ -1,14 +1,13 @@
-import { waterPointAt } from './src/scene/camera';
+import type { PointerConsumer } from '../input/pointer';
 
-const soundButton = document.querySelector('#sound');
-const soundError = document.querySelector('#sound-error');
-const canvas = document.querySelector('#water');
-let audioContext;
-let source;
-let strokeSource;
-let strokeGain;
-let strokeTimer;
-let lastPointer;
+const soundButton = document.querySelector<HTMLButtonElement>('#sound')!;
+const soundError = document.querySelector<HTMLElement>('#sound-error')!;
+let audioContext: AudioContext | undefined;
+let source: AudioBufferSourceNode | undefined;
+let strokeSource: AudioBufferSourceNode | undefined;
+let strokeGain: GainNode | undefined;
+let strokeTimer: number | undefined;
+let lastPointer: { x: number; y: number } | undefined;
 let entryTime = 0;
 let stroking = false;
 let playing = false;
@@ -17,7 +16,7 @@ function stopStroke(immediate = false, resetPointer = true) {
   clearTimeout(strokeTimer);
   if (resetPointer) lastPointer = undefined;
   stroking = false;
-  if (!strokeGain) return;
+  if (!strokeGain || !audioContext) return;
   const now = audioContext.currentTime;
   if (immediate) {
     strokeGain.gain.cancelScheduledValues(now);
@@ -27,37 +26,33 @@ function stopStroke(immediate = false, resetPointer = true) {
   }
 }
 
-canvas.addEventListener('pointerenter', (event) => {
-  if (event.pointerType !== 'mouse') return;
-  lastPointer = waterPointAt(canvas, event.clientX, event.clientY)
-    ? { x: event.clientX, y: event.clientY } : undefined;
-  entryTime = performance.now();
-});
-canvas.addEventListener('pointermove', (event) => {
-  if (event.pointerType !== 'mouse' || !playing || !strokeGain || document.hidden) return;
-  if (!waterPointAt(canvas, event.clientX, event.clientY)) {
-    stopStroke();
-    return;
-  }
-  const point = { x: event.clientX, y: event.clientY };
-  if (!lastPointer) {
+export const soundPointer: PointerConsumer = {
+  enter(sample) {
+    lastPointer = sample.water ? { x: sample.clientX, y: sample.clientY } : undefined;
+    entryTime = sample.now;
+  },
+  move(sample) {
+    if (!playing || !strokeGain || !audioContext || document.hidden) return;
+    if (!sample.water) {
+      stopStroke();
+      return;
+    }
+    const point = { x: sample.clientX, y: sample.clientY };
+    if (!lastPointer || sample.now - entryTime < 180) {
+      lastPointer = point;
+      return;
+    }
+    if (Math.hypot(point.x - lastPointer.x, point.y - lastPointer.y) < (stroking ? 1 : 3)) return;
     lastPointer = point;
-    return;
-  }
-  if (performance.now() - entryTime < 180) {
-    lastPointer = point;
-    return;
-  }
-  if (Math.hypot(point.x - lastPointer.x, point.y - lastPointer.y) < (stroking ? 1 : 3)) return;
-  lastPointer = point;
-  if (!stroking) {
-    stroking = true;
-    strokeGain.gain.setTargetAtTime(0.65, audioContext.currentTime, 0.04);
-  }
-  clearTimeout(strokeTimer);
-  strokeTimer = setTimeout(() => stopStroke(false, false), 220);
-});
-canvas.addEventListener('pointerleave', () => stopStroke());
+    if (!stroking) {
+      stroking = true;
+      strokeGain.gain.setTargetAtTime(0.65, audioContext.currentTime, 0.04);
+    }
+    clearTimeout(strokeTimer);
+    strokeTimer = setTimeout(() => stopStroke(false, false), 220);
+  },
+  leave: () => stopStroke()
+};
 window.addEventListener('blur', () => stopStroke());
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) stopStroke();
@@ -79,7 +74,7 @@ soundButton.addEventListener('click', async () => {
       await audioContext.resume();
       if (audioContext.state !== 'running') throw new Error('Audio did not start');
       if (!source) {
-        const response = await fetch(new URL('./assets/water-lake-b-even.wav', import.meta.url));
+        const response = await fetch(new URL('../../assets/water-lake-b-even.wav', import.meta.url));
         if (!response.ok) throw new Error(`Audio request failed: ${response.status}`);
         const buffer = await audioContext.decodeAudioData(await response.arrayBuffer());
         const newSource = audioContext.createBufferSource();
@@ -96,7 +91,7 @@ soundButton.addEventListener('click', async () => {
     soundError.hidden = true;
     if (playing && !strokeSource) {
       try {
-        const response = await fetch(new URL('./assets/paddle-stroke-flow.wav', import.meta.url));
+        const response = await fetch(new URL('../../assets/paddle-stroke-flow.wav', import.meta.url));
         if (!response.ok) throw new Error(`Paddle audio request failed: ${response.status}`);
         const buffer = await audioContext.decodeAudioData(await response.arrayBuffer());
         const newSource = audioContext.createBufferSource();
