@@ -1,3 +1,5 @@
+import { waterPointAt } from './camera.js?v=1';
+
 const soundButton = document.querySelector('#sound');
 const soundError = document.querySelector('#sound-error');
 const canvas = document.querySelector('#water');
@@ -27,11 +29,16 @@ function stopStroke(immediate = false, resetPointer = true) {
 
 canvas.addEventListener('pointerenter', (event) => {
   if (event.pointerType !== 'mouse') return;
-  lastPointer = { x: event.clientX, y: event.clientY };
+  lastPointer = waterPointAt(canvas, event.clientX, event.clientY)
+    ? { x: event.clientX, y: event.clientY } : undefined;
   entryTime = performance.now();
 });
 canvas.addEventListener('pointermove', (event) => {
   if (event.pointerType !== 'mouse' || !playing || !strokeGain || document.hidden) return;
+  if (!waterPointAt(canvas, event.clientX, event.clientY)) {
+    stopStroke();
+    return;
+  }
   const point = { x: event.clientX, y: event.clientY };
   if (!lastPointer) {
     lastPointer = point;

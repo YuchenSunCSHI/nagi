@@ -1,3 +1,5 @@
+import { camera, waterPointAt } from './camera.js?v=1';
+
 const canvas = document.querySelector('#water');
 const message = document.querySelector('#message');
 const lightingButton = document.querySelector('#lighting');
@@ -142,10 +144,22 @@ void considerCurvePoint(vec2 origin, vec2 linear, vec2 curvature, vec2 point,
   }
 }
 
+const vec3 dayLight = vec3(-0.60, 0.36, 0.87);
+
+vec3 clearDaySky(vec3 direction) {
+  vec3 horizon = vec3(0.43, 0.72, 1.08);
+  vec3 blue = vec3(0.060, 0.36, 1.0);
+  float elevation = 1.0 - exp(-11.0 * max(direction.y, 0.0));
+  float glow = pow(max(dot(direction, normalize(vec3(dayLight.x, 0.14, dayLight.z))), 0.0), 5.0);
+  return mix(horizon, blue, elevation) + vec3(0.24, 0.23, 0.19) * glow;
+}
+
 void main() {
   vec2 screen = (2.0 * gl_FragCoord.xy - uResolution) / uResolution.y;
-  vec3 ray = normalize(vec3(screen.x * 0.50, -0.34 + screen.y * 0.27, 1.0));
-  vec2 point = ray.xz * (0.9 / -ray.y);
+  float viewY = -${camera.pitch} + screen.y * ${camera.verticalScale};
+  vec3 viewRay = normalize(vec3(screen.x * ${camera.horizontalScale}, viewY, 1.0));
+  vec3 ray = normalize(vec3(screen.x * ${camera.horizontalScale}, min(viewY, -${camera.horizonMargin}), 1.0));
+  vec2 point = ray.xz * (${camera.height} / -ray.y);
 
   vec2 gradient = vec2(0.0);
   float frequency = 4.0;
@@ -162,9 +176,13 @@ void main() {
 
   float wave = dot(point, vec2(2.4, 4.0)) - uTime * 1.1
     + 0.7 * sin(point.x * 1.8 + uTime * 0.35);
-  gradient += cos(wave) * vec2(2.4 + 1.26 * cos(point.x * 1.8 + uTime * 0.35), 4.0) * 0.014;
+  float distantWaveDetail = 1.0 - 0.75 * uLighting.x * smoothstep(7.0, 20.0, point.y);
+  float waveVisibility = (1.0 - smoothstep(0.7, 2.0, fwidth(wave))) * distantWaveDetail;
+  gradient += cos(wave) * vec2(2.4 + 1.26 * cos(point.x * 1.8 + uTime * 0.35), 4.0)
+    * 0.014 * waveVisibility;
   float crossWave = dot(point, vec2(-3.8, 2.2)) - uTime * 0.8;
-  gradient += cos(crossWave) * vec2(-3.8, 2.2) * 0.010;
+  float crossVisibility = (1.0 - smoothstep(0.7, 2.0, fwidth(crossWave))) * distantWaveDetail;
+  gradient += cos(crossWave) * vec2(-3.8, 2.2) * 0.010 * crossVisibility;
 
   const float rippleScale = 0.24;
   float worldPixel = length(fwidth(point));
@@ -310,20 +328,26 @@ void main() {
       gradient += offset / max(distance, 0.001 * rippleScale) * slope * rippleVisibility;
     }
   }
+  // Fade out unresolved wave slopes before the horizon ray clamp repeats a row.
+  gradient *= 1.0 - uLighting.x * smoothstep(25.0, 55.0, point.y);
   vec3 normal = normalize(vec3(-gradient.x, 1.0, -gradient.y));
   vec3 reflected = reflect(ray, normal);
   vec3 lightDirection = normalize(
-    vec3(0.11, 0.48, 0.87) * uLighting.x
+    dayLight * uLighting.x
     + vec3(0.11, 0.29, 0.95) * uLighting.y
     + vec3(0.08, 0.35, 0.93) * uLighting.z
   );
 
   float fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(-ray, normal), 0.0), 5.0);
+  // Use the unclamped view slope so the transition can continue all the way to the horizon.
+  float deepWater = 1.0 - smoothstep(0.0, 0.18, -viewY);
   float skyMix = smoothstep(-0.2, 0.9, reflected.y);
-  vec3 sky = mix(vec3(0.30, 0.46, 0.66), vec3(0.50, 0.64, 0.80), skyMix);
   vec3 sunsetSky = mix(vec3(0.90, 0.40, 0.16), vec3(1.15, 0.68, 0.29), skyMix);
   vec3 nightSky = mix(vec3(0.025, 0.045, 0.10), vec3(0.08, 0.13, 0.23), skyMix);
-  sky = sky * uLighting.x + sunsetSky * uLighting.y + nightSky * uLighting.z;
+  vec3 dayReflection = clearDaySky(reflected)
+    * mix(vec3(1.0), vec3(0.30, 0.42, 0.52), deepWater);
+  vec3 sky = dayReflection * uLighting.x
+    + sunsetSky * uLighting.y + nightSky * uLighting.z;
 
   vec3 refractionNormal = normalize(vec3(-gradient.x * 0.65, 1.0, -gradient.y * 0.65));
   vec3 transmitted = refract(ray, refractionNormal, 1.0 / 1.333);
@@ -334,7 +358,11 @@ void main() {
   vec3 bottom = riverbed(bottomPoint);
   bottom *= 0.92 + 0.16 * noiseWithGradient(bottomPoint * 3.0 + vec2(uTime * 0.2, -uTime * 0.1)).x;
   vec3 transmission = exp(-vec3(1.2, 0.35, 0.10) * waterDistance);
-  vec3 underwater = mix(vec3(0.025, 0.11, 0.24), bottom * vec3(0.58, 0.73, 1.02), transmission);
+  vec3 waterTint = mix(vec3(0.025, 0.11, 0.24), vec3(0.018, 0.16, 0.22), uLighting.x);
+  float dayDepth = deepWater * uLighting.x;
+  waterTint = mix(waterTint, vec3(0.025, 0.085, 0.14), dayDepth);
+  transmission *= 1.0 - dayDepth;
+  vec3 underwater = mix(waterTint, bottom * vec3(0.58, 0.73, 1.02), transmission);
   float grassDepth = 1e5;
   float grassOpacity = 0.0;
   float grassAntialias = clamp(worldPixel * 0.75, 0.001, 0.015);
@@ -367,9 +395,29 @@ void main() {
   vec3 lightColor = vec3(1.0, 0.84, 0.61) * uLighting.x
     + vec3(1.0, 0.67, 0.24) * uLighting.y
     + vec3(0.72, 0.82, 1.0) * uLighting.z;
-  float glintStrength = dot(vec3(1.8, 4.5, 0.65), uLighting);
-  float glowStrength = dot(vec3(0.11, 0.27, 0.035), uLighting);
+  float glintStrength = dot(vec3(0.62, 4.5, 0.65), uLighting);
+  float glowStrength = dot(vec3(0.06, 0.27, 0.035), uLighting);
   color += lightColor * (glint * glintStrength + glow * glowStrength);
+
+  vec3 horizonSky = vec3(1.05, 0.55, 0.25) * uLighting.y
+    + vec3(0.055, 0.09, 0.16) * uLighting.z;
+  vec3 upperSky = vec3(0.65, 0.35, 0.44) * uLighting.y
+    + vec3(0.025, 0.045, 0.10) * uLighting.z;
+  float skySideLight = smoothstep(-0.55, 0.60, -viewRay.x);
+  float skyElevation = 1.0 - exp(-22.0 * max(viewRay.y, 0.0));
+  vec3 dayHorizonSky = mix(vec3(0.36, 0.67, 1.04), vec3(0.74, 1.13, 1.54), skySideLight);
+  vec3 dayUpperSky = mix(vec3(0.025, 0.25, 1.32), vec3(0.15, 0.48, 1.28), skySideLight);
+  vec3 visibleSky = mix(horizonSky, upperSky, smoothstep(0.0, 0.35, viewRay.y))
+    + mix(dayHorizonSky, dayUpperSky, skyElevation) * uLighting.x;
+  float haze = smoothstep(12.0, 45.0, point.y);
+  color = color * (1.0 - haze * (1.0 - uLighting.x))
+    + horizonSky * vec3(0.82, 0.87, 0.91) * haze;
+  // Soften only the last few pixels of water without flattening the distant water into haze.
+  float horizonEdge = max(fwidth(viewY), 0.001);
+  float horizonVeil = smoothstep(-6.0 * horizonEdge, 0.0, viewY);
+  color = mix(color, dayHorizonSky, 0.16 * horizonVeil * uLighting.x);
+  horizonEdge *= 1.0 + 0.75 * uLighting.x;
+  color = mix(color, visibleSky, smoothstep(-horizonEdge, horizonEdge, viewY));
 
   color = color / (1.0 + color);
   color = pow(color, vec3(1.0 / 2.2));
@@ -678,14 +726,11 @@ function updatePlayback() {
 }
 
 function pointerPosition(event) {
-  const bounds = canvas.getBoundingClientRect();
-  if (!bounds.width || !bounds.height) return undefined;
-  const screenX = (2 * (event.clientX - bounds.left) - bounds.width) / bounds.height;
-  const screenY = (bounds.height - 2 * (event.clientY - bounds.top)) / bounds.height;
-  const depth = 0.9 / (0.34 - screenY * 0.27);
+  const point = waterPointAt(canvas, event.clientX, event.clientY);
+  if (!point) return undefined;
   const now = performance.now();
   const time = elapsed + (startTime ? (now - startTime) / 1000 : 0);
-  return { x: screenX * 0.5 * depth, z: depth, time, now, clientX: event.clientX, clientY: event.clientY };
+  return { ...point, time, now, clientX: event.clientX, clientY: event.clientY };
 }
 
 function resetGesture() {
@@ -703,7 +748,7 @@ function pointAtFishDepth(point, depth) {
   const horizontal = point.x * point.x + point.z * point.z;
   const refractiveIndex = 1.333;
   const factor = 1 + depth / (refractiveIndex
-    * Math.sqrt(0.9 * 0.9 + horizontal * (1 - 1 / (refractiveIndex * refractiveIndex))));
+    * Math.sqrt(camera.height * camera.height + horizontal * (1 - 1 / (refractiveIndex * refractiveIndex))));
   return { x: point.x * factor, z: point.z * factor };
 }
 
@@ -815,7 +860,11 @@ canvas.addEventListener('pointermove', (event) => {
   if (event.pointerType !== 'mouse' || motionPreference.matches || !gl || contextLost
     || !message.hidden || document.hidden) return;
   const point = pointerPosition(event);
-  if (!point) return;
+  if (!point) {
+    finishGesture();
+    pointerPoint = undefined;
+    return;
+  }
   if (!pointerPoint) {
     pointerPoint = point;
     return;
