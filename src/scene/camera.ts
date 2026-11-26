@@ -6,7 +6,12 @@ export const camera = {
   horizonMargin: 0.015
 };
 
-export function waterPointAt(canvas, clientX, clientY) {
+export interface WaterPoint {
+  x: number;
+  z: number;
+}
+
+export function waterPointAt(canvas: HTMLCanvasElement, clientX: number, clientY: number): WaterPoint | undefined {
   const bounds = canvas.getBoundingClientRect();
   if (!bounds.width || !bounds.height) return undefined;
   const screenX = (2 * (clientX - bounds.left) - bounds.width) / bounds.height;

@@ -67,6 +67,28 @@ try {
     hashes[phase] = createHash('sha256').update(png).digest('hex');
     await page.locator('#lighting').click();
   }
+  await page.setViewportSize({ width: 700, height: 420 });
+  await page.waitForFunction(() => {
+    const canvas = document.querySelector('#water');
+    const gl = canvas.getContext('webgl2');
+    const program = gl.getParameter(gl.CURRENT_PROGRAM);
+    const resolution = gl.getUniform(program, gl.getUniformLocation(program, 'uResolution'));
+    return resolution[0] === 700 && resolution[1] === 420;
+  });
+  await page.evaluate(() => {
+    const gl = document.querySelector('#water').getContext('webgl2');
+    const extension = gl.getExtension('WEBGL_lose_context');
+    extension.loseContext();
+    document.querySelector('#water').addEventListener('webglcontextlost',
+      () => setTimeout(() => extension.restoreContext(), 100), { once: true });
+  });
+  await page.locator('#lighting:disabled').waitFor();
+  await page.locator('#lighting:enabled').waitFor();
+  assert.equal(await page.evaluate(() => {
+    const gl = document.querySelector('#water').getContext('webgl2');
+    return !gl.isContextLost() && Boolean(gl.getParameter(gl.CURRENT_PROGRAM));
+  }), true, 'WebGL renderer recreates its program after context restore');
+  await page.setViewportSize({ width: 640, height: 400 });
   await page.locator('#sound').click();
   await page.locator('#sound[aria-pressed=true]:enabled').waitFor();
   assert.equal(await page.locator('#sound-error').isHidden(), true);
@@ -90,7 +112,7 @@ try {
   assert.ok((await counts())[1] > 0, 'long stroke creates a wake');
   assert.deepEqual(errors, []);
   assert.deepEqual(hashes, JSON.parse(await readFile('tests/baseline/sha256.json', 'utf8')), 'same-browser reference frames');
-  console.log('Three reference frames matched; sky, short/long strokes and audio passed.');
+  console.log('Three reference frames matched; resize, WebGL restore, sky, short/long strokes and audio passed.');
 } finally {
   await browser?.close();
   server.close();

@@ -1,3 +1,3 @@
 import '../style.css';
-import '../water.js';
+import './water';
 import '../sound.js';
