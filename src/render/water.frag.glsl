@@ -5,6 +5,7 @@ uniform vec2 uResolution;
 uniform float uTime;
 uniform float uCameraPitch;
 uniform vec4 uCameraShape;
+uniform vec3 uAppearance; // Day-sky blue, far-water transition width, and reflection strength.
 uniform vec3 uLighting;
 uniform vec4 uRipples[20];
 uniform vec4 uRippleEnds[20];
@@ -324,7 +325,7 @@ void main() {
 
   float fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(-ray, normal), 0.0), 5.0);
   // Use the unclamped view slope so the transition can continue all the way to the horizon.
-  float deepWater = 1.0 - smoothstep(0.0, 0.18, -viewY);
+  float deepWater = 1.0 - smoothstep(0.0, 0.18 * uAppearance.y, -viewY);
   float skyMix = smoothstep(-0.2, 0.9, reflected.y);
   vec3 sunsetSky = mix(vec3(0.90, 0.40, 0.16), vec3(1.15, 0.68, 0.29), skyMix);
   vec3 nightSky = mix(vec3(0.025, 0.045, 0.10), vec3(0.08, 0.13, 0.23), skyMix);
@@ -371,7 +372,7 @@ void main() {
   underwater *= vec3(1.0) * uLighting.x
     + vec3(0.95, 0.85, 0.85) * uLighting.y
     + vec3(0.25, 0.35, 0.52) * uLighting.z;
-  vec3 color = mix(underwater, sky, fresnel);
+  vec3 color = mix(underwater, sky, min(1.0, fresnel * uAppearance.z));
 
   float sunAlignment = max(dot(reflected, lightDirection), 0.0);
   float glint = pow(sunAlignment, mix(110.0, 80.0, uLighting.y));
@@ -381,7 +382,7 @@ void main() {
     + vec3(0.72, 0.82, 1.0) * uLighting.z;
   float glintStrength = dot(vec3(0.62, 4.5, 0.65), uLighting);
   float glowStrength = dot(vec3(0.06, 0.27, 0.035), uLighting);
-  color += lightColor * (glint * glintStrength + glow * glowStrength);
+  color += lightColor * (glint * glintStrength + glow * glowStrength) * uAppearance.z;
 
   vec3 horizonSky = vec3(1.05, 0.55, 0.25) * uLighting.y
     + vec3(0.055, 0.09, 0.16) * uLighting.z;
@@ -391,6 +392,8 @@ void main() {
   float skyElevation = 1.0 - exp(-22.0 * max(viewRay.y, 0.0));
   vec3 dayHorizonSky = mix(vec3(0.36, 0.67, 1.04), vec3(0.74, 1.13, 1.54), skySideLight);
   vec3 dayUpperSky = mix(vec3(0.025, 0.25, 1.32), vec3(0.15, 0.48, 1.28), skySideLight);
+  dayHorizonSky.b *= uAppearance.x;
+  dayUpperSky.b *= uAppearance.x;
   vec3 visibleSky = mix(horizonSky, upperSky, smoothstep(0.0, 0.35, viewRay.y))
     + mix(dayHorizonSky, dayUpperSky, skyElevation) * uLighting.x;
   float haze = smoothstep(12.0, 45.0, point.y);

@@ -48,9 +48,7 @@ try {
   await page.goto(devUrl ?? `http://127.0.0.1:${server.address().port}${prefix}`);
   await page.locator('#lighting:enabled').waitFor();
   const hashes = {};
-  for (const phase of ['day', 'sunset', 'night']) {
-    assert.equal(await page.locator('#lighting').getAttribute('data-phase'), phase);
-    const frame = await page.evaluate(() => {
+  const capture = () => page.evaluate(() => {
       const canvas = document.querySelector('#water');
       const gl = canvas.getContext('webgl2');
       const program = gl.getParameter(gl.CURRENT_PROGRAM);
@@ -71,9 +69,26 @@ try {
       ctx.putImageData(image, 0, 0);
       return copy.toDataURL().split(',')[1];
     });
-    const png = Buffer.from(frame, 'base64');
-    hashes[phase] = createHash('sha256').update(png).digest('hex');
+  const hashFrame = async () => createHash('sha256').update(Buffer.from(await capture(), 'base64')).digest('hex');
+  for (const phase of ['day', 'sunset', 'night']) {
+    assert.equal(await page.locator('#lighting').getAttribute('data-phase'), phase);
+    hashes[phase] = await hashFrame();
     await page.locator('#lighting').click();
+  }
+  const tuning = page.locator('#water-tuning');
+  if (devUrl) {
+    await tuning.locator('summary').click();
+    for (const [name, value] of [
+      ['horizon', '35'], ['skyBlue', '1.3'], ['distantTransition', '1.4'], ['reflection', '0.75']
+    ]) {
+      await page.locator(`#water-tune-${name}`).fill(value);
+      assert.notEqual(await hashFrame(), hashes.day, `${name} changes the frame without restarting animation`);
+      await tuning.getByRole('button', { name: '恢复默认' }).click();
+      assert.equal(await hashFrame(), hashes.day, `${name} reset returns to the original frame`);
+    }
+    await tuning.locator('summary').click();
+  } else {
+    assert.equal(await tuning.count(), 0, 'tuning UI is absent in production');
   }
   await page.setViewportSize({ width: 700, height: 420 });
   await page.waitForFunction(() => {

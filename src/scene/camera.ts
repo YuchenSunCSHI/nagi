@@ -1,6 +1,8 @@
+export const defaultPitch = 0.12;
+
 export const camera = {
   height: 0.9,
-  pitch: 0.12,
+  pitch: defaultPitch,
   horizontalScale: 0.55,
   verticalScale: 0.27,
   horizonMargin: 0.015

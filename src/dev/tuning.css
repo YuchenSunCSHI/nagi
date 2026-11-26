@@ -1,0 +1,25 @@
+#water-tuning {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  box-sizing: border-box;
+  max-width: calc(100vw - 2.5rem);
+  max-height: 75vh;
+  overflow: auto;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 0.75rem;
+  background: rgba(15, 30, 38, 0.92);
+  color: #fff;
+  font-size: 0.85rem;
+}
+
+#water-tuning summary { cursor: pointer; }
+#water-tuning div { margin-block: 0.6rem; }
+#water-tuning label {
+  display: grid;
+  grid-template-columns: minmax(0, 9rem) 4ch;
+  column-gap: 0.6rem;
+}
+#water-tuning input { grid-column: 1; width: 100%; margin: 0; }
+#water-tuning output { grid-column: 2; text-align: right; }

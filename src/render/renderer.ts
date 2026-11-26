@@ -1,6 +1,7 @@
 import vertexSource from './water.vert.glsl?raw';
 import fragmentSource from './water.frag.glsl?raw';
 import { camera } from '../scene/camera';
+import { appearance } from '../scene/appearance';
 
 export interface Drop {
   x: number;
@@ -68,6 +69,7 @@ export function createRenderer(gl: WebGL2RenderingContext, images: HTMLImageElem
   };
   const resolution = uniform('uResolution');
   const cameraPitch = uniform('uCameraPitch');
+  const appearanceUniform = uniform('uAppearance');
   const time = uniform('uTime');
   const lighting = uniform('uLighting');
   const ripples = uniform('uRipples[0]');
@@ -121,6 +123,7 @@ export function createRenderer(gl: WebGL2RenderingContext, images: HTMLImageElem
         dropUniforms.set([point.x, point.z, point.time, point.strength], i * 4);
       }
       gl.uniform1f(cameraPitch, camera.pitch);
+      gl.uniform3f(appearanceUniform, appearance.skyBlue, appearance.distantTransition, appearance.reflection);
       gl.uniform1f(time, seconds);
       gl.uniform3fv(lighting, light);
       gl.uniform1i(rippleCount, wakes.length);

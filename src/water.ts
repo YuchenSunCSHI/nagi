@@ -194,6 +194,15 @@ const gestures = createGestures(clock.timeAt,
   });
 bindWaterPointer(canvas, gestures.pointer, soundPointer);
 
+if (import.meta.env.DEV) {
+  void import('./dev/tuning').then(({ mountTuningPanel }) => mountTuningPanel(() => {
+    gestures.reset();
+    if (renderer && !contextLost && message.hidden && motionPreference.matches && !document.hidden) {
+      draw(clock.timeAt(performance.now()));
+    }
+  })).catch(error => console.error('Unable to load water tuning controls', error));
+}
+
 canvas.addEventListener('webglcontextlost', (event) => {
   event.preventDefault();
   contextLost = true;
