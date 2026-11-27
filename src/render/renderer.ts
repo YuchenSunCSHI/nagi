@@ -28,8 +28,12 @@ const textures = [
   ['uCatfish', true, false, new URL('../../assets/fish-channel-catfish.png', import.meta.url).href]
 ] as const;
 
-export function loadWaterTextures() {
-  return Promise.all(textures.map(([, , , url]) => new Promise<HTMLImageElement>((resolve, reject) => {
+const textureGroups = { bed: [0, 1], fish: [2, 3, 4, 5] } as const;
+export type TextureGroup = keyof typeof textureGroups;
+
+export function loadWaterTextures(group: TextureGroup) {
+  return Promise.all(textureGroups[group].map(unit => new Promise<HTMLImageElement>((resolve, reject) => {
+    const url = textures[unit][3];
     const image = new Image();
     image.onload = () => resolve(image);
     image.onerror = () => reject(new Error(`Unable to load image: ${url}`));
@@ -37,7 +41,7 @@ export function loadWaterTextures() {
   })));
 }
 
-export function createRenderer(gl: WebGL2RenderingContext, images: HTMLImageElement[], fishSeeds: Float32Array) {
+export function createRenderer(gl: WebGL2RenderingContext, fishSeeds: Float32Array) {
   const compile = (type: number, source: string) => {
     const shader = gl.createShader(type);
     if (!shader) throw new Error('Unable to create shader');
@@ -79,25 +83,25 @@ export function createRenderer(gl: WebGL2RenderingContext, images: HTMLImageElem
   const drops = uniform('uDrops[0]');
   const dropCount = uniform('uDropCount');
   const fishMotion = uniform('uFishMotion[0]');
+  const textureReady = { bed: uniform('uBedReady'), fish: uniform('uFishReady') };
   gl.useProgram(program);
   gl.uniform2fv(uniform('uFishSeeds[0]'), fishSeeds);
   gl.uniform4f(uniform('uCameraShape'), camera.horizontalScale, camera.verticalScale, camera.horizonMargin, camera.height);
-  textures.forEach(([name, color, repeat], unit) => {
+  const gpuTextures = textures.map(([name, color, repeat], unit) => {
     const texture = gl.createTexture();
     if (!texture) throw new Error(`Unable to create ${name} texture`);
     gl.activeTexture(gl.TEXTURE0 + unit);
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-    gl.texImage2D(gl.TEXTURE_2D, 0, color ? gl.SRGB8_ALPHA8 : gl.RGBA,
-      gl.RGBA, gl.UNSIGNED_BYTE, images[unit]);
+    gl.texImage2D(gl.TEXTURE_2D, 0, color ? gl.SRGB8_ALPHA8 : gl.RGBA8,
+      1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, repeat ? gl.REPEAT : gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, repeat ? gl.REPEAT : gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.generateMipmap(gl.TEXTURE_2D);
     gl.uniform1i(uniform(name), unit);
     const error = gl.getError();
     if (error !== gl.NO_ERROR) throw new Error(`Unable to upload ${name}: WebGL error ${error}`);
+    return texture;
   });
 
   const rippleUniforms = new Float32Array(20 * 4);
@@ -105,6 +109,20 @@ export function createRenderer(gl: WebGL2RenderingContext, images: HTMLImageElem
   const rippleControlUniforms = new Float32Array(20 * 2);
   const dropUniforms = new Float32Array(10 * 4);
   return {
+    setTextures(group: TextureGroup, images: HTMLImageElement[]) {
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+      textureGroups[group].forEach((unit, index) => {
+        const [name, color] = textures[unit];
+        gl.activeTexture(gl.TEXTURE0 + unit);
+        gl.bindTexture(gl.TEXTURE_2D, gpuTextures[unit]);
+        gl.texImage2D(gl.TEXTURE_2D, 0, color ? gl.SRGB8_ALPHA8 : gl.RGBA,
+          gl.RGBA, gl.UNSIGNED_BYTE, images[index]);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        const error = gl.getError();
+        if (error !== gl.NO_ERROR) throw new Error(`Unable to upload ${name}: WebGL error ${error}`);
+      });
+      gl.uniform1i(textureReady[group], 1);
+    },
     resize(width: number, height: number) {
       gl.viewport(0, 0, width, height);
       gl.uniform2f(resolution, width, height);

@@ -15,6 +15,8 @@ uniform vec4 uDrops[10];
 uniform int uDropCount;
 uniform vec2 uFishSeeds[6];
 uniform vec4 uFishMotion[6];
+uniform bool uBedReady;
+uniform bool uFishReady;
 uniform sampler2D uBedColor;
 uniform sampler2D uBedNormal;
 uniform sampler2D uFish;
@@ -342,14 +344,17 @@ void main() {
   float waterDistance = depth / max(-transmitted.y, 0.05);
   vec2 surfacePoint = point + ray.xz * (-surfaceHeight / -ray.y);
   vec2 bottomPoint = surfacePoint + transmitted.xz * waterDistance;
-  vec3 bottom = riverbed(bottomPoint);
-  bottom *= 0.92 + 0.16 * noiseWithGradient(bottomPoint * 3.0 + vec2(uTime * 0.2, -uTime * 0.1)).x;
   vec3 transmission = exp(-vec3(1.2, 0.35, 0.10) * waterDistance);
   vec3 waterTint = mix(vec3(0.025, 0.11, 0.24), vec3(0.018, 0.16, 0.22), uLighting.x);
   float dayDepth = deepWater * uLighting.x;
   waterTint = mix(waterTint, vec3(0.025, 0.085, 0.14), dayDepth);
   transmission *= 1.0 - dayDepth;
-  vec3 underwater = mix(waterTint, bottom * vec3(0.58, 0.73, 1.02), transmission);
+  vec3 underwater = waterTint;
+  if (uBedReady) {
+    vec3 bottom = riverbed(bottomPoint);
+    bottom *= 0.92 + 0.16 * noiseWithGradient(bottomPoint * 3.0 + vec2(uTime * 0.2, -uTime * 0.1)).x;
+    underwater = mix(waterTint, bottom * vec3(0.58, 0.73, 1.02), transmission);
+  }
   float grassDepth = 1e5;
   float grassOpacity = 0.0;
   float grassAntialias = clamp(worldPixel * 0.75, 0.001, 0.015);
@@ -359,18 +364,20 @@ void main() {
     grassAntialias, vec2(1.05, 2.8), 1.7);
   grassLayer(underwater, grassDepth, grassOpacity, surfacePoint, transmitted, depth,
     grassAntialias, vec2(-1.0, 2.4), 0.2);
-  underwater = fishLayer(uCatfish, underwater, surfacePoint, transmitted, depth, grassDepth, grassOpacity,
-    uFishMotion[0], uFishSeeds[0], 0.22, 0.70);
-  underwater = fishLayer(uFish, underwater, surfacePoint, transmitted, depth, grassDepth, grassOpacity,
-    uFishMotion[1], uFishSeeds[1], 0.20, 0.62);
-  underwater = fishLayer(uBass, underwater, surfacePoint, transmitted, depth, grassDepth, grassOpacity,
-    uFishMotion[2], uFishSeeds[2], 0.17, 0.66);
-  underwater = fishLayer(uFish, underwater, surfacePoint, transmitted, depth, grassDepth, grassOpacity,
-    uFishMotion[3], uFishSeeds[3], 0.14, 0.68);
-  underwater = fishLayer(uKoi, underwater, surfacePoint, transmitted, depth, grassDepth, grassOpacity,
-    uFishMotion[4], uFishSeeds[4], 0.11, 0.72);
-  underwater = fishLayer(uFish, underwater, surfacePoint, transmitted, depth, grassDepth, grassOpacity,
-    uFishMotion[5], uFishSeeds[5], 0.09, 0.75);
+  if (uFishReady) {
+    underwater = fishLayer(uCatfish, underwater, surfacePoint, transmitted, depth, grassDepth, grassOpacity,
+      uFishMotion[0], uFishSeeds[0], 0.22, 0.70);
+    underwater = fishLayer(uFish, underwater, surfacePoint, transmitted, depth, grassDepth, grassOpacity,
+      uFishMotion[1], uFishSeeds[1], 0.20, 0.62);
+    underwater = fishLayer(uBass, underwater, surfacePoint, transmitted, depth, grassDepth, grassOpacity,
+      uFishMotion[2], uFishSeeds[2], 0.17, 0.66);
+    underwater = fishLayer(uFish, underwater, surfacePoint, transmitted, depth, grassDepth, grassOpacity,
+      uFishMotion[3], uFishSeeds[3], 0.14, 0.68);
+    underwater = fishLayer(uKoi, underwater, surfacePoint, transmitted, depth, grassDepth, grassOpacity,
+      uFishMotion[4], uFishSeeds[4], 0.11, 0.72);
+    underwater = fishLayer(uFish, underwater, surfacePoint, transmitted, depth, grassDepth, grassOpacity,
+      uFishMotion[5], uFishSeeds[5], 0.09, 0.75);
+  }
   underwater *= vec3(1.0) * uLighting.x
     + vec3(0.95, 0.85, 0.85) * uLighting.y
     + vec3(0.25, 0.35, 0.52) * uLighting.z;

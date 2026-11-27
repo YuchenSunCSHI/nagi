@@ -11,6 +11,66 @@ let lastPointer: { x: number; y: number } | undefined;
 let entryTime = 0;
 let stroking = false;
 let playing = false;
+let strokeLoading: Promise<void> | undefined;
+
+function audioDownload(url: URL) {
+  let pending: Promise<ArrayBuffer> | undefined;
+  return {
+    load(priority: RequestPriority = 'auto') {
+      return pending ??= fetch(url, { priority }).then(response => {
+        if (!response.ok) throw new Error(`Audio request failed (${url.pathname}): ${response.status}`);
+        return response.arrayBuffer();
+      }).catch(error => {
+        pending = undefined;
+        throw error;
+      });
+    },
+    release() { pending = undefined; }
+  };
+}
+
+const ambient = audioDownload(new URL('../../assets/behlersee-ambient-loop.flac', import.meta.url));
+const stroke = audioDownload(new URL('../../assets/paddle-stroke-flow.wav', import.meta.url));
+
+function setSoundBusy(busy: boolean) {
+  soundButton.disabled = busy;
+  if (busy) soundButton.setAttribute('aria-busy', 'true');
+  else soundButton.removeAttribute('aria-busy');
+}
+
+export function prefetchSound() {
+  void ambient.load('low').catch(error => {
+    console.warn('Unable to prefetch ambient audio', error);
+    soundError.textContent = '背景音未能加载，请点「声音」重试。';
+    soundError.hidden = false;
+  }).finally(() => setSoundBusy(false));
+  if (!strokeSource) void stroke.load('low').catch(error => console.warn('Unable to prefetch stroke audio', error));
+}
+
+async function loadStroke(context: AudioContext) {
+  try {
+    const buffer = await context.decodeAudioData(await stroke.load());
+    const newSource = context.createBufferSource();
+    const gain = context.createGain();
+    newSource.buffer = buffer;
+    newSource.loop = true;
+    gain.gain.value = 0;
+    newSource.connect(gain);
+    gain.connect(context.destination);
+    newSource.start();
+    strokeSource = newSource;
+    strokeGain = gain;
+  } catch (error) {
+    console.error(error);
+    if (playing) {
+      soundError.textContent = '环境音已开启，划水声未加载。下次开启声音时会重试。';
+      soundError.hidden = false;
+    }
+  } finally {
+    stroke.release();
+    strokeLoading = undefined;
+  }
+}
 
 function stopStroke(immediate = false, resetPointer = true) {
   clearTimeout(strokeTimer);
@@ -59,8 +119,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 soundButton.addEventListener('click', async () => {
-  soundButton.disabled = true;
-  soundButton.setAttribute('aria-busy', 'true');
+  setSoundBusy(true);
   try {
     if (!audioContext) {
       if (!window.AudioContext) throw new Error('Web Audio is not supported');
@@ -75,9 +134,7 @@ soundButton.addEventListener('click', async () => {
       await audioContext.resume();
       if (audioContext.state !== 'running') throw new Error('Audio did not start');
       if (!source) {
-        const response = await fetch(new URL('../../assets/water-lake-b-even.wav', import.meta.url));
-        if (!response.ok) throw new Error(`Audio request failed: ${response.status}`);
-        const buffer = await audioContext.decodeAudioData(await response.arrayBuffer());
+        const buffer = await audioContext.decodeAudioData(await ambient.load()).finally(ambient.release);
         const newSource = audioContext.createBufferSource();
         newSource.buffer = buffer;
         newSource.loop = true;
@@ -89,27 +146,7 @@ soundButton.addEventListener('click', async () => {
     playing = !playing;
     soundButton.setAttribute('aria-pressed', String(playing));
     soundError.hidden = true;
-    if (playing && !strokeSource) {
-      try {
-        const response = await fetch(new URL('../../assets/paddle-stroke-flow.wav', import.meta.url));
-        if (!response.ok) throw new Error(`Paddle audio request failed: ${response.status}`);
-        const buffer = await audioContext.decodeAudioData(await response.arrayBuffer());
-        const newSource = audioContext.createBufferSource();
-        const gain = audioContext.createGain();
-        newSource.buffer = buffer;
-        newSource.loop = true;
-        gain.gain.value = 0;
-        newSource.connect(gain);
-        gain.connect(audioContext.destination);
-        newSource.start();
-        strokeSource = newSource;
-        strokeGain = gain;
-      } catch (error) {
-        console.error(error);
-        soundError.textContent = '环境音已开启，划水声未加载。关闭声音后重新开启可重试。';
-        soundError.hidden = false;
-      }
-    }
+    if (playing && !strokeSource) strokeLoading ??= loadStroke(audioContext);
   } catch (error) {
     console.error(error);
     soundError.textContent = playing
@@ -117,7 +154,6 @@ soundButton.addEventListener('click', async () => {
       : '声音未能开启，请再点一次「声音」重试。';
     soundError.hidden = false;
   } finally {
-    soundButton.removeAttribute('aria-busy');
-    soundButton.disabled = false;
+    setSoundBusy(false);
   }
 });

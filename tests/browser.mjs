@@ -10,7 +10,7 @@ const root = resolve('dist');
 const prefix = '/nagi/';
 const mime = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
-  '.jpg': 'image/jpeg', '.png': 'image/png', '.wav': 'audio/wav'
+  '.jpg': 'image/jpeg', '.png': 'image/png', '.wav': 'audio/wav', '.flac': 'audio/flac'
 };
 const server = createServer(async (req, res) => {
   const { pathname } = new URL(req.url, 'http://localhost');
@@ -35,6 +35,23 @@ try {
   const page = await browser.newPage({ viewport: { width: 640, height: 400 }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
   await page.addInitScript(() => {
     Math.random = () => 0.25;
+    const drawArrays = WebGL2RenderingContext.prototype.drawArrays;
+    WebGL2RenderingContext.prototype.drawArrays = function(...args) {
+      drawArrays.apply(this, args);
+      if (this.canvas.id === 'water') window.waterDrawn = true;
+    };
+    const createAudioContext = window.AudioContext;
+    window.AudioContext = class extends createAudioContext {
+      constructor(...args) {
+        super(...args);
+        window.audioContextCreated = true;
+      }
+    };
+    const startBuffer = AudioBufferSourceNode.prototype.start;
+    AudioBufferSourceNode.prototype.start = function(...args) {
+      startBuffer.apply(this, args);
+      window.startedAudioBuffers = (window.startedAudioBuffers ?? 0) + 1;
+    };
     const schedule = AudioParam.prototype.setTargetAtTime;
     window.strokeGainTargets = [];
     AudioParam.prototype.setTargetAtTime = function(target, time, decay) {
@@ -48,16 +65,59 @@ try {
   const url = new URL(devUrl ?? `http://127.0.0.1:${server.address().port}${prefix}`);
   url.searchParams.delete('tuning');
   if (devUrl) {
-    await page.goto(url.href, { waitUntil: 'networkidle' });
+    await page.goto(url.href);
     assert.equal(await page.locator('#water-tuning').count(), 0, 'tuning is hidden by default in development');
   }
   url.searchParams.set('tuning', '1');
   const appUrl = url.href;
-  await page.goto(appUrl);
+  let releaseTextures;
+  const texturesGate = new Promise(resolve => { releaseTextures = resolve; });
+  await page.route(/\/(?:dry_river_pebbles[^/]*\.jpg|fish-[^/]*\.png)$/, async route => {
+    await texturesGate;
+    await route.continue();
+  });
+  let releaseAudio;
+  const audioGate = new Promise(resolve => { releaseAudio = resolve; });
+  const ambientPattern = /behlersee-ambient-loop[^/]*\.flac$/;
+  let ambientRequests = 0;
+  await page.route(ambientPattern, async route => {
+    ambientRequests++;
+    await audioGate;
+    await route.continue();
+  });
+  let releaseStroke;
+  const strokeGate = new Promise(resolve => { releaseStroke = resolve; });
+  await page.route(/paddle-stroke-flow[^/]*\.wav$/, async route => {
+    await strokeGate;
+    await route.continue();
+  });
+  const requestedAmbient = page.waitForRequest(ambientPattern);
+  await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
   const lighting = page.locator('#lighting');
   const option = phase => lighting.locator(`input[value="${phase}"]`);
   const choose = phase => lighting.locator(`label:has(input[value="${phase}"])`).click();
   await lighting.locator('input:enabled').first().waitFor();
+  const texturesReady = (expected) => {
+    const canvas = document.querySelector('#water');
+    const gl = canvas.getContext('webgl2');
+    const program = gl?.getParameter(gl.CURRENT_PROGRAM);
+    return Boolean(program) && ['uBedReady', 'uFishReady'].every(
+      (name, index) => gl.getUniform(program, gl.getUniformLocation(program, name)) === expected[index]);
+  };
+  try {
+    await page.waitForFunction(() => window.waterDrawn);
+    assert.equal(await page.evaluate(texturesReady, [false, false]), true, 'water draws before textures are available');
+    assert.equal(ambientRequests, 0, 'ambient prefetch waits for visual assets');
+    assert.equal(await page.locator('#sound').isDisabled(), true, 'sound starts disabled before prefetch');
+    await choose('night');
+    assert.equal(await option('night').isChecked(), true, 'lighting works while textures are loading');
+    await choose('day');
+  } finally {
+    releaseTextures();
+  }
+  await page.waitForFunction(texturesReady, [true, true]);
+  await requestedAmbient;
+  assert.equal(await page.evaluate(() => Boolean(window.audioContextCreated)), false, 'prefetch does not create an audio context');
   assert.equal(await option('day').isChecked(), true);
   for (const [phase, name] of [['day', '白天'], ['sunset', '傍晚'], ['night', '月光']]) {
     assert.equal(await lighting.getByRole('radio', { name, exact: true }).getAttribute('value'), phase);
@@ -224,7 +284,8 @@ try {
   assert.equal(await option('night').isChecked(), true, 'arrow keys change the selected scene');
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Tab');
-  assert.equal(await page.locator('#sound').evaluate(button => button === document.activeElement), true);
+  assert.equal(await page.locator('#sound').evaluate(button => button === document.activeElement), false,
+    'sound is skipped in the tab order while it is loading');
   await page.setViewportSize({ width: 700, height: 420 });
   await page.waitForFunction(() => {
     const canvas = document.querySelector('#water');
@@ -249,29 +310,41 @@ try {
   await page.setViewportSize({ width: 640, height: 400 });
   const hud = page.locator('.scene-controls');
   const initialHud = await hud.boundingBox();
-  let releaseAudio;
-  const audioGate = new Promise(resolve => { releaseAudio = resolve; });
   const soundOpacity = selector => page.locator(`#sound ${selector}`).evaluate(icon => getComputedStyle(icon).opacity);
-  await page.route(/water-lake-b-even[^/]*\.wav$/, async route => {
-    await audioGate;
-    await route.continue();
-  }, { times: 1 });
+  const sound = page.locator('#sound');
   try {
-    await page.locator('#sound').click();
-    await page.locator('#sound:disabled').waitFor();
-    assert.equal(await page.locator('#sound').getAttribute('aria-busy'), 'true');
+    assert.equal(await sound.isDisabled(), true, 'in-flight background download keeps sound disabled');
+    assert.equal(await sound.getAttribute('aria-busy'), 'true');
     assert.equal(await soundOpacity('.sound-wait'), '1', 'slow audio shows the wait icon even with reduced motion');
     assert.equal(await soundOpacity('.sound-icon'), '0', 'the wait icon replaces the speaker in place');
-    assert.deepEqual(await hud.boundingBox(), initialHud, 'sound loading does not move or resize the control bar');
   } finally {
     releaseAudio();
   }
-  await page.locator('#sound[aria-pressed=true]:enabled').waitFor();
+  await page.locator('#sound[aria-pressed=false]:enabled').waitFor();
+  await option('day').focus();
+  await page.keyboard.press('Tab');
+  assert.equal(await sound.evaluate(button => button === document.activeElement), true,
+    'sound is keyboard reachable once the background audio is ready');
+  assert.equal(await page.evaluate(() => Boolean(window.audioContextCreated)), false, 'ready sound does not play automatically');
   assert.equal(await soundOpacity('.sound-wait'), '0', 'the wait icon clears when sound is ready');
+  assert.deepEqual(await hud.boundingBox(), initialHud, 'sound loading does not move or resize the control bar');
+  try {
+    await sound.click();
+    await page.locator('#sound[aria-pressed=true]:enabled').waitFor();
+    await sound.click();
+    await page.locator('#sound[aria-pressed=false]:enabled').waitFor();
+    assert.equal(await page.evaluate(() => window.startedAudioBuffers), 1, 'sound can be muted while the stroke download is pending');
+  } finally {
+    releaseStroke();
+  }
+  await sound.click();
+  await page.locator('#sound[aria-pressed=true]:enabled').waitFor();
+  assert.equal(ambientRequests, 1, 'click reuses the downloaded background audio');
   assert.equal(await soundOpacity('.sound-wave'), '1');
   assert.equal(await soundOpacity('.sound-mute'), '0');
   assert.deepEqual(await hud.boundingBox(), initialHud, 'enabling sound keeps the control bar in place');
   assert.equal(await page.locator('#sound-error').isHidden(), true);
+  await page.waitForFunction(() => window.startedAudioBuffers === 2);
   const sendPointer = (kind, x, y) => page.locator('#water').dispatchEvent(`pointer${kind}`, {
     pointerType: 'mouse', clientX: x, clientY: y
   });

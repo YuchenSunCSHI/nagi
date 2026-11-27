@@ -1,9 +1,9 @@
-import { createRenderer, loadWaterTextures, type Drop, type Wake } from './render/renderer';
+import { createRenderer, loadWaterTextures, type Drop, type TextureGroup, type Wake } from './render/renderer';
 import type { WaterPoint } from './scene/camera';
 import { createClock } from './scene/clock';
 import { createFishSchool } from './scene/fish';
 import { createLighting } from './scene/lighting';
-import { soundPointer } from './audio/sound';
+import { prefetchSound, soundPointer } from './audio/sound';
 import { bindWaterPointer } from './input/pointer';
 import { createGestures, type StrokePoint, type TimedPoint } from './input/gestures';
 
@@ -17,7 +17,9 @@ const lighting = createLighting();
 const ripples: Wake[] = [];
 const drops: Drop[] = [];
 let renderer: ReturnType<typeof createRenderer> | undefined;
-let images: HTMLImageElement[] | undefined;
+const images: Partial<Record<TextureGroup, HTMLImageElement[]>> = {};
+const textureGroups = ['bed', 'fish'] as const;
+let assetsScheduled = false;
 let frame = 0;
 let contextLost = false;
 
@@ -39,14 +41,14 @@ function showError(text: string, error?: unknown) {
 }
 
 function initialize() {
-  if (!images) return false;
   const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, depth: false });
   if (!gl) {
     showError('当前浏览器不支持 WebGL 2，无法显示水面。请尝试更新浏览器或启用硬件加速。');
     return false;
   }
   try {
-    renderer = createRenderer(gl, images, fish.seeds);
+    renderer = createRenderer(gl, fish.seeds);
+    for (const group of textureGroups) uploadTextures(group);
     message.hidden = true;
     lightingControls.disabled = false;
     resize();
@@ -55,6 +57,31 @@ function initialize() {
     showError('水面渲染初始化失败。请检查浏览器的 WebGL 支持和控制台错误信息。', error);
     return false;
   }
+}
+
+function uploadTextures(group: TextureGroup) {
+  const loaded = images[group];
+  if (!renderer || contextLost || !loaded) return;
+  try {
+    renderer.setTextures(group, loaded);
+  } catch (error) {
+    console.warn(`Unable to upload water ${group} textures`, error);
+  }
+}
+
+async function loadSceneAssets() {
+  await Promise.all(textureGroups.map(async group => {
+    try {
+      images[group] = await loadWaterTextures(group);
+      uploadTextures(group);
+      if (renderer && !contextLost && motionPreference.matches && !document.hidden) {
+        draw(clock.timeAt(performance.now()));
+      }
+    } catch (error) {
+      console.warn(`Unable to load water ${group} textures`, error);
+    }
+  }));
+  prefetchSound();
 }
 
 function resize() {
@@ -77,6 +104,10 @@ function draw(time: number) {
   while (ripples.length && time - ripples[0].endTime >= 1.8) ripples.shift();
   while (drops.length && time - drops[0].time >= 1.8) drops.shift();
   renderer?.draw(time, lighting.weights(performance.now(), motionPreference.matches), ripples, drops, fish.update(time));
+  if (renderer && !assetsScheduled) {
+    assetsScheduled = true;
+    setTimeout(() => void loadSceneAssets(), 0);
+  }
 }
 
 function tick(now: number) {
@@ -233,11 +264,4 @@ lightingControls.addEventListener('change', (event) => {
 });
 
 
-message.textContent = '正在加载水下素材…';
-message.hidden = false;
-loadWaterTextures().then(loaded => {
-  images = loaded;
-  if (initialize()) updatePlayback();
-}, error => {
-  showError('水下素材加载失败，请检查资源文件和浏览器控制台。', error);
-});
+if (initialize()) updatePlayback();
