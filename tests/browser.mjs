@@ -154,6 +154,44 @@ try {
     assert.equal(await tuning.count(), 0, 'tuning UI is absent in production');
   }
   await verifyLightingMotion();
+  const horizonVariation = await page.locator('#water').evaluate(canvas => {
+    const gl = canvas.getContext('webgl2');
+    const program = gl.getParameter(gl.CURRENT_PROGRAM);
+    const pitch = gl.getUniform(program, gl.getUniformLocation(program, 'uCameraPitch'));
+    const [, verticalScale, margin] = gl.getUniform(program, gl.getUniformLocation(program, 'uCameraShape'));
+    const horizonRow = canvas.height * (1 + pitch / verticalScale) / 2;
+    const bottomRow = Math.ceil(horizonRow - margin * canvas.height / (2 * verticalScale));
+    const rowCount = Math.floor(horizonRow) - bottomRow;
+    const lightingUniform = gl.getUniformLocation(program, 'uLighting');
+    const timeUniform = gl.getUniformLocation(program, 'uTime');
+    const previousLight = gl.getUniform(program, lightingUniform);
+    const previousTime = gl.getUniform(program, timeUniform);
+    const sample = time => {
+      const pixels = new Uint8Array(canvas.width * rowCount * 4);
+      gl.uniform1f(timeUniform, time);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.readPixels(0, bottomRow, canvas.width, rowCount, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      return pixels;
+    };
+    try {
+      return [[0.5, 0.5, 0], [0.5, 0, 0.5], [0, 0.5, 0.5]].map(weights => {
+        gl.uniform3fv(lightingUniform, weights);
+        const first = sample(4);
+        let maxDelta = 0;
+        for (const time of [4.15, 4.37, 4.68]) {
+          const next = sample(time);
+          for (let i = 0; i < first.length; i++) maxDelta = Math.max(maxDelta, Math.abs(first[i] - next[i]));
+        }
+        return maxDelta;
+      });
+    } finally {
+      gl.uniform3fv(lightingUniform, previousLight);
+      gl.uniform1f(timeUniform, previousTime);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+  });
+  assert.ok(horizonVariation.every(delta => delta <= 1),
+    `unresolved waves should not flicker next to the horizon during any lighting blend: ${horizonVariation}`);
   const phone = await browser.newPage({ viewport: { width: 320, height: 568 }, hasTouch: true, reducedMotion: 'reduce' });
   try {
     await phone.goto(appUrl);

@@ -313,8 +313,10 @@ void main() {
       gradient += offset / max(distance, 0.001 * rippleScale) * slope * rippleVisibility;
     }
   }
-  // Fade out unresolved wave slopes before the horizon ray clamp repeats a row.
-  gradient *= 1.0 - uLighting.x * smoothstep(25.0, 55.0, point.y);
+  // All lighting blends must flatten wave slopes before the horizon ray clamps.
+  float horizonWaveFade = smoothstep(45.0, 55.0, point.y);
+  float daylightWaveFade = smoothstep(25.0, 55.0, point.y);
+  gradient *= 1.0 - mix(horizonWaveFade, daylightWaveFade, uLighting.x);
   vec3 normal = normalize(vec3(-gradient.x, 1.0, -gradient.y));
   vec3 reflected = reflect(ray, normal);
   vec3 lightDirection = normalize(
