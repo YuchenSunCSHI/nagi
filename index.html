@@ -9,6 +9,20 @@
 <body>
   <main>
     <canvas id="water" role="img" aria-label="阳光下缓缓流动的河面"></canvas>
+    <canvas id="mountain" role="img" aria-label="金色晨光下的雪山" hidden></canvas>
+    <div class="scene-picker">
+      <button id="scene-toggle" type="button" aria-label="切换场景" aria-expanded="false" aria-controls="scene-options" title="切换场景">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m3 18 6-10 4 6 3-4 5 8z"/>
+          <path d="M17 6h.01"/>
+        </svg>
+      </button>
+      <div id="scene-options" role="group" aria-label="场景" hidden>
+        <button type="button" data-scenery="lake" aria-pressed="true">宁静湖面</button>
+        <button type="button" data-scenery="mountain" aria-pressed="false">日照金山</button>
+      </div>
+      <p id="scene-status" role="status" hidden></p>
+    </div>
     <div class="scene-hud">
       <p id="sound-error" role="status" hidden></p>
       <div class="scene-controls" role="group" aria-label="水景控制">

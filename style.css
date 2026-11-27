@@ -18,6 +18,99 @@ canvas {
   height: 100%;
 }
 
+[hidden] { display: none !important; }
+
+.scene-picker {
+  position: fixed;
+  inset-inline-start: max(var(--hud-edge), env(safe-area-inset-left));
+  inset-block-end: var(--hud-bottom);
+  z-index: 2;
+  color: var(--control-text);
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+.scene-picker button {
+  color: inherit;
+  font: inherit;
+}
+
+#scene-toggle {
+  display: grid;
+  place-items: center;
+  inline-size: 50px;
+  block-size: 50px;
+  padding: 0;
+  border: 1px solid var(--control-border);
+  border-radius: 50%;
+  background: var(--control-glass);
+  cursor: pointer;
+}
+
+#scene-options,
+#scene-status {
+  max-inline-size: min(15rem, calc(100vw - 32px));
+  box-sizing: border-box;
+  margin: 0;
+  border: 1px solid var(--control-border);
+  border-radius: var(--control-radius);
+  background: var(--control-surface);
+}
+
+#scene-options {
+  grid-row: 1;
+  display: grid;
+  gap: 2px;
+  padding: 4px;
+}
+
+#scene-status {
+  grid-row: 2;
+  padding: 8px 12px;
+  font-size: .875rem;
+}
+
+#scene-toggle { grid-row: 3; }
+
+#mountain:not([hidden]) ~ #message,
+#mountain:not([hidden]) ~ .scene-hud #sound-error { display: none; }
+
+@media (min-width: 32.01rem) {
+  body:has(.scene-picker) #water-tuning {
+    bottom: calc(var(--hud-bottom) + 58px);
+  }
+}
+
+#scene-options button {
+  min-block-size: var(--control-target);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  padding-inline: 12px;
+  text-align: start;
+  cursor: pointer;
+}
+
+#scene-options button[aria-pressed="true"] {
+  background: var(--control-highlight);
+  border-color: var(--control-border);
+}
+
+.scene-picker :focus-visible {
+  outline: 2px solid var(--control-focus);
+  outline-offset: -2px;
+}
+
+@media (hover: hover) {
+  #scene-toggle:hover,
+  #scene-options button:hover { border-color: var(--control-muted); }
+}
+
+@media (forced-colors: active) {
+  #scene-options button[aria-pressed="true"] { border-color: ButtonText; }
+}
+
 :root {
   --control-surface: rgb(15 30 38 / 88%);
   --control-glass: rgb(12 23 30 / 74%);

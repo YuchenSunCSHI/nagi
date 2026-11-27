@@ -3,6 +3,8 @@ import type { PointerConsumer } from '../input/pointer';
 const soundButton = document.querySelector<HTMLButtonElement>('#sound')!;
 const soundError = document.querySelector<HTMLElement>('#sound-error')!;
 let audioContext: AudioContext | undefined;
+let output: GainNode | undefined;
+let sceneAudible = true;
 let source: AudioBufferSourceNode | undefined;
 let strokeSource: AudioBufferSourceNode | undefined;
 let strokeGain: GainNode | undefined;
@@ -12,6 +14,12 @@ let entryTime = 0;
 let stroking = false;
 let playing = false;
 let strokeLoading: Promise<void> | undefined;
+
+export function setLakeAudible(audible: boolean) {
+  sceneAudible = audible;
+  if (!audible) stopStroke(true);
+  if (output && audioContext) output.gain.setValueAtTime(Number(audible), audioContext.currentTime);
+}
 
 function audioDownload(url: URL) {
   let pending: Promise<ArrayBuffer> | undefined;
@@ -56,7 +64,7 @@ async function loadStroke(context: AudioContext) {
     newSource.loop = true;
     gain.gain.value = 0;
     newSource.connect(gain);
-    gain.connect(context.destination);
+    gain.connect(output ?? context.destination);
     newSource.start();
     strokeSource = newSource;
     strokeGain = gain;
@@ -124,6 +132,9 @@ soundButton.addEventListener('click', async () => {
     if (!audioContext) {
       if (!window.AudioContext) throw new Error('Web Audio is not supported');
       audioContext = new AudioContext();
+      output = audioContext.createGain();
+      output.gain.value = Number(sceneAudible);
+      output.connect(audioContext.destination);
     }
 
     if (playing) {
@@ -138,7 +149,7 @@ soundButton.addEventListener('click', async () => {
         const newSource = audioContext.createBufferSource();
         newSource.buffer = buffer;
         newSource.loop = true;
-        newSource.connect(audioContext.destination);
+        newSource.connect(output ?? audioContext.destination);
         newSource.start();
         source = newSource;
       }

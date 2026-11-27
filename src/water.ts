@@ -33,7 +33,7 @@ let lastRippleTime = 0;
 
 function showError(text: string, error?: unknown) {
   if (error) console.error(error);
-  lightingControls.disabled = true;
+  if (!canvas.hidden) lightingControls.disabled = true;
   message.textContent = text;
   message.hidden = false;
   cancelAnimationFrame(frame);
@@ -50,7 +50,7 @@ function initialize() {
     renderer = createRenderer(gl, fish.seeds);
     for (const group of textureGroups) uploadTextures(group);
     message.hidden = true;
-    lightingControls.disabled = false;
+    if (!canvas.hidden) lightingControls.disabled = false;
     resize();
     return true;
   } catch (error) {
@@ -74,7 +74,7 @@ async function loadSceneAssets() {
     try {
       images[group] = await loadWaterTextures(group);
       uploadTextures(group);
-      if (renderer && !contextLost && motionPreference.matches && !document.hidden) {
+      if (renderer && !canvas.hidden && !contextLost && motionPreference.matches && !document.hidden) {
         draw(clock.timeAt(performance.now()));
       }
     } catch (error) {
@@ -126,7 +126,7 @@ function stop() {
 function updatePlayback() {
   stop();
   gestures.reset();
-  if (!renderer || contextLost || !message.hidden || document.hidden) return;
+  if (!renderer || canvas.hidden || contextLost || !message.hidden || document.hidden) return;
   resize();
   if (motionPreference.matches) {
     draw(clock.timeAt(performance.now()));
@@ -206,7 +206,7 @@ function appendStroke(point: StrokePoint) {
 }
 
 const gestures = createGestures(clock.timeAt,
-  () => !motionPreference.matches && Boolean(renderer) && !contextLost && message.hidden && !document.hidden,
+  () => !canvas.hidden && !motionPreference.matches && Boolean(renderer) && !contextLost && message.hidden && !document.hidden,
   {
     drop(point) {
       drops.push({ ...point, strength: 0.014 });
@@ -228,7 +228,7 @@ bindWaterPointer(canvas, gestures.pointer, soundPointer);
 if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('tuning') === '1') {
   void import('./dev/tuning').then(({ mountTuningPanel }) => mountTuningPanel(() => {
     gestures.reset();
-    if (renderer && !contextLost && message.hidden && motionPreference.matches && !document.hidden) {
+    if (renderer && !canvas.hidden && !contextLost && message.hidden && motionPreference.matches && !document.hidden) {
       draw(clock.timeAt(performance.now()));
     }
   })).catch(error => console.error('Unable to load water tuning controls', error));
@@ -256,6 +256,7 @@ motionPreference.addEventListener('change', () => {
   updatePlayback();
 });
 lightingControls.addEventListener('change', (event) => {
+  if (canvas.hidden) return;
   const input = event.target;
   if (!(input instanceof HTMLInputElement) || !input.checked) return;
   const mode = lighting.select(input.value, performance.now(), motionPreference.matches);
@@ -263,5 +264,10 @@ lightingControls.addEventListener('change', (event) => {
   updatePlayback();
 });
 
+export function setLakeVisible(visible: boolean) {
+  canvas.hidden = !visible;
+  if (visible) lightingControls.disabled = !renderer || contextLost || !message.hidden;
+  updatePlayback();
+}
 
 if (initialize()) updatePlayback();

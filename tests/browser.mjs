@@ -10,7 +10,7 @@ const root = resolve('dist');
 const prefix = '/nagi/';
 const mime = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
-  '.jpg': 'image/jpeg', '.png': 'image/png', '.wav': 'audio/wav', '.flac': 'audio/flac'
+  '.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.wav': 'audio/wav', '.flac': 'audio/flac'
 };
 const server = createServer(async (req, res) => {
   const { pathname } = new URL(req.url, 'http://localhost');
@@ -39,6 +39,28 @@ try {
     WebGL2RenderingContext.prototype.drawArrays = function(...args) {
       drawArrays.apply(this, args);
       if (this.canvas.id === 'water') window.waterDrawn = true;
+      if (this.canvas.id === 'mountain') {
+        const pixel = new Uint8Array(4);
+        this.readPixels(this.canvas.width >> 1, 1,
+          1, 1, this.RGBA, this.UNSIGNED_BYTE, pixel);
+        window.mountainSkyAtBottom = pixel.slice(0, 3);
+        this.readPixels(this.canvas.width >> 1, Math.floor(this.canvas.height * .88),
+          1, 1, this.RGBA, this.UNSIGNED_BYTE, pixel);
+        window.mountainSkyBrightness = (pixel[0] + pixel[1] + pixel[2]) / 3;
+      }
+    };
+    const drawElements = WebGL2RenderingContext.prototype.drawElements;
+    WebGL2RenderingContext.prototype.drawElements = function(...args) {
+      drawElements.apply(this, args);
+      if (this.canvas.id !== 'mountain') return;
+      const samples = new Uint8Array(4);
+      window.mountainSamples = [0, 0.34, 0.43, 0.52, 0.60, 0.66].flatMap(y =>
+        [0.16, 0.27, 0.38, 0.44, 0.5, 0.56, 0.62, 0.73, 0.84].map(x => {
+          this.readPixels(Math.floor(this.canvas.width * x), Math.max(1, Math.floor(this.canvas.height * y)),
+            1, 1, this.RGBA, this.UNSIGNED_BYTE, samples);
+          return [...samples.slice(0, 3)];
+        }));
+      window.mountainError = this.getError();
     };
     const createAudioContext = window.AudioContext;
     window.AudioContext = class extends createAudioContext {
@@ -412,9 +434,64 @@ try {
     assert.equal(result[0][5], 0, 'far fish is unaffected');
     assert.ok(result[1][0] > result[0][0], 'affected fish does not return to its old path');
   }
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 320, height: 568 });
+  const lake = page.locator('#water');
+  const mountain = page.locator('#mountain');
+  const sceneToggle = page.getByRole('button', { name: '切换场景' });
+  const mountainModule = /\/(?:src\/render\/mountain\.ts|assets\/mountain-[^/]+\.js)(?:\?.*)?$/;
+  assert.deepEqual((await page.evaluate(() => performance.getEntriesByType('resource').map(entry => entry.name)))
+    .filter(url => mountainModule.test(url)), [], 'default lake does not request the mountain module');
+  await choose('sunset');
+  let releaseMountain;
+  const mountainGate = new Promise(resolve => { releaseMountain = resolve; });
+  await page.route(mountainModule, async route => {
+    await mountainGate;
+    await route.continue();
+  });
+  await sceneToggle.click();
+  try {
+    await page.getByRole('button', { name: '日照金山' }).click();
+    await page.locator('#scene-status').waitFor();
+    assert.equal(await lake.isVisible(), true, 'lake remains visible while the mountain loads');
+  } finally {
+    releaseMountain();
+  }
+  await mountain.waitFor();
+  assert.equal(await lake.isVisible(), false);
+  assert.equal(await sound.isVisible(), false, 'mountain has no lake audio control');
+  assert.equal(await option('day').isChecked(), true, 'mountain starts in morning light');
+  const terrainSamples = async () => {
+    await page.waitForFunction(() => window.mountainSamples?.length);
+    const { mountainSamples, mountainError } = await page.evaluate(() => ({
+      mountainSamples: window.mountainSamples,
+      mountainError: window.mountainError
+    }));
+    assert.equal(mountainError, 0, 'terrain draws without a WebGL error');
+    return mountainSamples;
+  };
+  const dayPixels = await terrainSamples();
+  const skyAtBottom = await page.evaluate(() => [...window.mountainSkyAtBottom]);
+  const daySkyBrightness = await page.evaluate(() => window.mountainSkyBrightness);
+  assert.notDeepEqual(dayPixels[4], skyAtBottom, 'portrait terrain covers the foreground to the bottom');
+  assert.ok(dayPixels.some(([r, , b]) => r > b + 20), 'morning lights part of the mountain gold');
+  assert.ok(dayPixels.some(([r, , b]) => b > r + 20), 'morning leaves part of the scene cool');
+  await choose('sunset');
+  const sunsetPixels = await terrainSamples();
+  assert.notDeepEqual(sunsetPixels, dayPixels);
+  await choose('night');
+  const nightPixels = await terrainSamples();
+  assert.notDeepEqual(nightPixels, sunsetPixels);
+  const nightSkyBrightness = await page.evaluate(() => window.mountainSkyBrightness);
+  assert.ok(nightSkyBrightness < daySkyBrightness - 25, 'night sky is noticeably dimmer than sunrise');
+  await sceneToggle.click();
+  await page.getByRole('button', { name: '宁静湖面' }).click();
+  await lake.waitFor();
+  assert.equal(await option('sunset').isChecked(), true, 'returning restores the previous lake light');
+  assert.equal(await sound.isVisible(), true);
   assert.deepEqual(errors, []);
   assert.deepEqual(hashes, JSON.parse(await readFile('tests/baseline/sha256.json', 'utf8')), 'same-browser reference frames');
-  console.log('Three reference frames matched; resize, WebGL restore, sky, short/long strokes and audio passed.');
+  console.log('Three lake reference frames matched; interaction, audio and lazy mountain scene passed.');
 } finally {
   await browser?.close();
   server.close();
